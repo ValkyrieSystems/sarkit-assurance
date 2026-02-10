@@ -4,7 +4,7 @@
 
 </div>
 
-**sarkit-assurance** is a Python library for working with SAR data in standard formats.
+**sarkit-assurance** is a suite of SAR-related assurance tools in Python.
 
 ## License
 This repository is licensed under the [MIT license](./LICENSE).

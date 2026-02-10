@@ -1,16 +1,16 @@
 [project]
 name = "sarkit-assurance"
-description = "Python library for converting SAR data to standard formats."
+description = "Suite of SAR-related assurance tools in Python."
 authors = [
     {name = "Valkyrie Systems Corporation", email = "info@govsco.com"},
 ]
 requires-python = ">=3.11"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: MIT License",
   "Topic :: Scientific/Engineering",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
