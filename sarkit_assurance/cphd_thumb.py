@@ -1,10 +1,11 @@
 import argparse
 import math
-import pathlib
 
 import numpy as np
 import sarkit.cphd as skcphd
 from PIL import Image
+
+from . import names
 
 try:
     from smart_open import open
@@ -12,25 +13,9 @@ except ImportError:
     pass
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("cphd_file", help="Path to input CPHD file")
-    parser.add_argument(
-        "thumbnail_file", type=pathlib.Path, help="Path to output thumbnail"
-    )
-    parser.add_argument("--channel-id", required=True, help="CPHD channel to use")
-    parser.add_argument(
-        "--num-mebipixels",
-        default=1.0,
-        type=float,
-        help="Maximum number of mebipixels to output",
-    )
-    config = parser.parse_args(args)
-
-    output_size = config.num_mebipixels * 2**20
-
-    with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        sig, pvps = r.read_channel(config.channel_id)
+def channel_thumb(cphd_reader, channel_id, thumbnail_file, output_size):
+    """Produce a thumbnail for the CPHD channel identified by channel_id"""
+    sig, pvps = cphd_reader.read_channel(channel_id)
 
     if sig.dtype.names is None:
         assert sig.dtype.newbyteorder("=") == np.dtype("c8")
@@ -50,7 +35,50 @@ def main(args=None):
     factor = math.sqrt(sig.size / output_size)
     (width, height) = (img.width // factor, img.height // factor)
     img.thumbnail((width, height))
-    img.save(config.thumbnail_file)
+    img.save(thumbnail_file)
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(
+        description="Create thumbnails from CPHD signal arrays"
+    )
+    parser.add_argument("cphd_file", help="Path to input CPHD file")
+    parser.add_argument(
+        "thumbnail_file",
+        help="Path to output thumbnail. The string '{ch_id}' will be replaced with channel identifier.",
+    )
+    parser.add_argument(
+        "--channel-id",
+        action="append",
+        help="Identifier of channel to use. If unspecified, a thumbnail for each channel is generated.",
+    )
+    parser.add_argument(
+        "--num-mebipixels",
+        default=1.0,
+        type=float,
+        help="Maximum number of mebipixels to output",
+    )
+    config = parser.parse_args(args)
+
+    output_size = config.num_mebipixels * 2**20
+
+    with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
+        if not config.channel_id:
+            ch_ids = [
+                x.text
+                for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
+            ]
+        else:
+            ch_ids = config.channel_id
+        thumbnames = [
+            config.thumbnail_file.format(ch_id=names.sanitize_name(ch_id))
+            for ch_id in ch_ids
+        ]
+        if len(set(thumbnames)) != len(set(ch_ids)):
+            raise RuntimeError("Duplicate output filenames detected")
+
+        for ch_id, thumbname in zip(ch_ids, thumbnames):
+            channel_thumb(r, ch_id, thumbname, output_size)
 
 
 if __name__ == "__main__":
