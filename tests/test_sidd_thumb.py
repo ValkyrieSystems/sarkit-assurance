@@ -1,10 +1,8 @@
-import copy
 import filecmp
 import pathlib
 import subprocess
 import sys
 
-import lxml.etree
 import numpy as np
 import pytest
 import sarkit.sidd as sksidd
@@ -15,190 +13,95 @@ import tests.utils
 DATAPATH = pathlib.Path(__file__).parents[1] / "data"
 
 
-def _image(sidd_xmltree):
-    xml_helper = sksidd.XmlHelper(sidd_xmltree)
-    rows = xml_helper.load("./{*}Measurement/{*}PixelFootprint/{*}Row")
-    cols = xml_helper.load("./{*}Measurement/{*}PixelFootprint/{*}Col")
-    basis = Image.effect_mandelbrot((cols, rows), (-1.024, -0.768, 1.024, 0.768), 100)
-    im = Image.merge("RGB", (basis, basis.rotate(120), basis.rotate(240)))
-    return im
-
-
-def make_thumb(in_sidd, img_num, out_thumb, expected_max_num_pixels):
+def make_thumb(in_sidd, out_thumb, expected_max_num_pixels=2**20, img_num=None):
+    img_num_args = [f"--image-number={x}" for x in img_num] if img_num else []
     subprocess.check_call(
         [
             sys.executable,
             "-m",
             "sarkit_assurance.sidd_thumb",
             str(in_sidd),
-            out_thumb,
-            "--image-number",
-            str(img_num),
+            str(out_thumb),
             "--num-mebipixels",
             str(expected_max_num_pixels / 2**20),
-        ],
+        ]
+        + img_num_args,
     )
+
+
+def get_expected_img_modes(sidd_file):
+    with open(sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
+        img_metas = r.metadata.images
+
+    def lookup_type(img_meta):
+        px_type = img_meta.xmltree.findtext("{*}Display/{*}PixelType")
+        lut_type = (
+            None if img_meta.lookup_table is None else img_meta.lookup_table.dtype
+        )
+        return {
+            ("MONO8I", None): "L",
+            ("MONO8LU", np.dtype("uint8")): "L",
+            ("MONO8LU", np.dtype("uint16")): "I;16",
+            ("MONO16I", None): "I;16",
+            ("RGB8LU", sksidd.PIXEL_TYPES["RGB24I"]["dtype"]): "RGB",
+            ("RGB24I", None): "RGB",
+        }[(px_type, lut_type)]
+
+    return [lookup_type(x) for x in img_metas]
 
 
 # try to trigger PIL thumbnail first stage resize and not
 @pytest.mark.parametrize("expected_max_num_pixels", [2**10, 2**16])
-def test_main(tmp_path, expected_max_num_pixels):
-    test_sidd = tmp_path / "out.sidd"
-    sidd_xml = DATAPATH / "example-sidd-3.0.0.xml"
-    expected_img_modes = []
+def test_main(tmp_path, expected_max_num_pixels, multi_sidd):
+    expected_img_modes = get_expected_img_modes(multi_sidd)
 
-    # MONO8I
-    basis_etree0 = lxml.etree.parse(sidd_xml)
-    basis_array0 = np.asarray(_image(basis_etree0).convert(mode="L"))
-    expected_img_modes.append("L")
-
-    # MONO16I
-    basis_etree1 = lxml.etree.parse(sidd_xml)
-    basis_etree1.find("./{*}Display/{*}PixelType").text = "MONO16I"
-    basis_array1 = (
-        np.asarray(_image(basis_etree1).convert(mode="L")).astype(np.uint16) << 8
-    )
-    expected_img_modes.append("I;16")
-
-    def _set_3_bands(tree):
-        ew = sksidd.ElementWrapper(tree.getroot())
-
-        try:
-            ew["Display"]["NumBands"] = 3
-        except KeyError:
-            # SIDD 1.0
-            return
-
-        ew["Display"].add(
-            "NonInteractiveProcessing",
-            copy.deepcopy(ew["Display"]["NonInteractiveProcessing"][0]),
+    make_thumb(multi_sidd, str(tmp_path / "thumb_{num}.png"), expected_max_num_pixels)
+    with tests.utils.static_http_server(multi_sidd.parent) as server_url:
+        make_thumb(
+            f"{server_url}/{multi_sidd.name}",
+            str(tmp_path / "remotethumb_{num}.png"),
+            expected_max_num_pixels,
         )
-        ew["Display"].add(
-            "NonInteractiveProcessing",
-            copy.deepcopy(ew["Display"]["NonInteractiveProcessing"][0]),
-        )
-        ew["Display"]["NonInteractiveProcessing"][1]["@band"] = "2"
-        ew["Display"]["NonInteractiveProcessing"][2]["@band"] = "3"
-        ew["Display"].add(
-            "InteractiveProcessing",
-            copy.deepcopy(ew["Display"]["InteractiveProcessing"][0]),
-        )
-        ew["Display"].add(
-            "InteractiveProcessing",
-            copy.deepcopy(ew["Display"]["InteractiveProcessing"][0]),
-        )
-        ew["Display"]["InteractiveProcessing"][1]["@band"] = "2"
-        ew["Display"]["InteractiveProcessing"][2]["@band"] = "3"
 
-    # RGB24I
-    basis_etree2 = lxml.etree.parse(sidd_xml)
-    basis_etree2.find("./{*}Display/{*}PixelType").text = "RGB24I"
-    _set_3_bands(basis_etree2)
-    basis_array2 = (
-        np.asarray(_image(basis_etree2))
-        .view(sksidd.PIXEL_TYPES["RGB24I"]["dtype"])
-        .squeeze()
-    )
-    expected_img_modes.append("RGB")
+    for index, expected_img_mode in enumerate(expected_img_modes):
+        out_thumb = tmp_path / f"thumb_{index}.png"
+        out_thumb_remote = tmp_path / f"remotethumb_{index}.png"
+        assert filecmp.cmp(out_thumb, out_thumb_remote, shallow=False)
 
-    # RGB8LU
-    basis_etree3 = lxml.etree.parse(sidd_xml)
-    img3 = _image(basis_etree3).convert("P", palette=Image.Palette.ADAPTIVE)
-    basis_array3 = np.asarray(img3)
-    basis_etree3.find("./{*}Display/{*}PixelType").text = "RGB8LU"
-    _set_3_bands(basis_etree3)
-    lookup_table3 = (
-        np.asarray(img3.getpalette())
-        .astype(np.uint8)
-        .reshape(-1, 3)
-        .view(sksidd.PIXEL_TYPES["RGB24I"]["dtype"])
-        .squeeze()
-    )
-    expected_img_modes.append("RGB")
+        img = Image.open(out_thumb)
+        assert img.format == "PNG"
+        assert 0 < np.prod(img.size) <= expected_max_num_pixels
+        assert img.mode == expected_img_mode
 
-    # MONO8LU - 8bit LUT
-    basis_etree4 = lxml.etree.parse(sidd_xml)
-    basis_array4 = np.asarray(_image(basis_etree4).convert(mode="L"))
-    basis_etree4.find("./{*}Display/{*}PixelType").text = "MONO8LU"
-    lookup_table4 = np.arange(256, dtype=np.uint8)
-    expected_img_modes.append("L")
 
-    # MONO8LU - 16bit LUT
-    basis_etree5 = lxml.etree.parse(sidd_xml)
-    basis_array5 = np.asarray(_image(basis_etree5).convert(mode="L"))
-    basis_etree5.find("./{*}Display/{*}PixelType").text = "MONO8LU"
-    lookup_table5 = (np.arange(256, dtype=np.uint16) << 8) + np.arange(
-        256, dtype=np.uint16
-    )[::-1]
-    expected_img_modes.append("I;16")
+def test_multi_img(tmp_path, multi_sidd):
+    expected_img_modes = get_expected_img_modes(multi_sidd)
+    name_pattern = "{num}.png"
+    # don't specify image_number
+    auto_dir = tmp_path / "auto"
+    auto_dir.mkdir()
+    make_thumb(multi_sidd, auto_dir / name_pattern)
 
-    sec = sksidd.NitfSecurityFields(clas="U")
-    write_metadata = sksidd.NitfMetadata(
-        file_header_part=sksidd.NitfFileHeaderPart(ostaid="UNKNOWN", security=sec)
-    )
-    write_metadata.images.extend(
-        [
-            sksidd.NitfProductImageMetadata(
-                xmltree=basis_etree0,
-                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
-                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
-            ),
-            sksidd.NitfProductImageMetadata(
-                xmltree=basis_etree1,
-                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
-                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
-            ),
-            sksidd.NitfProductImageMetadata(
-                xmltree=basis_etree2,
-                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
-                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
-            ),
-            sksidd.NitfProductImageMetadata(
-                xmltree=basis_etree3,
-                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
-                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
-                lookup_table=lookup_table3,
-            ),
-            sksidd.NitfProductImageMetadata(
-                xmltree=basis_etree4,
-                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
-                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
-                lookup_table=lookup_table4,
-            ),
-            sksidd.NitfProductImageMetadata(
-                xmltree=basis_etree5,
-                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
-                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
-                lookup_table=lookup_table5,
-            ),
-        ]
-    )
+    expected_names = {
+        name_pattern.format(num=x) for x in range(len(expected_img_modes))
+    }
+    actual_names = {x.name for x in auto_dir.iterdir()}
+    assert expected_names == actual_names
 
-    with test_sidd.open("wb") as file:
-        with sksidd.NitfWriter(file, write_metadata) as writer:
-            writer.write_image(0, basis_array0)
-            writer.write_image(1, basis_array1)
-            writer.write_image(2, basis_array2)
-            writer.write_image(3, basis_array3)
-            writer.write_image(4, basis_array4)
-            writer.write_image(5, basis_array5)
+    # specify image_number
+    manual_img_nums = [0, 2, 4]
+    manual_dir = tmp_path / "manual"
+    manual_dir.mkdir()
+    make_thumb(multi_sidd, manual_dir / name_pattern, img_num=manual_img_nums)
 
-    with tests.utils.static_http_server(test_sidd.parent) as server_url:
-        for index in range(len(write_metadata.images)):
-            out_thumb = tmp_path / f"thumb_{index}.png"
-            make_thumb(test_sidd, index, out_thumb, expected_max_num_pixels)
+    expected_names = {name_pattern.format(num=x) for x in manual_img_nums}
+    actual_names = {x.name for x in manual_dir.iterdir()}
+    assert expected_names == actual_names
 
-            out_thumb_remote = tmp_path / f"remotethumb_{index}.png"
-            make_thumb(
-                f"{server_url}/{test_sidd.name}",
-                index,
-                out_thumb_remote,
-                expected_max_num_pixels,
-            )
+    for name in actual_names:
+        assert filecmp.cmp(auto_dir / name, manual_dir / name, shallow=False)
 
-            assert filecmp.cmp(out_thumb, out_thumb_remote, shallow=False)
 
-            img = Image.open(out_thumb)
-            assert img.format == "PNG"
-            assert 0 < np.prod(img.size) <= expected_max_num_pixels
-            assert img.mode == expected_img_modes[index]
+def test_multi_img_clobber(tmp_path, multi_sidd):
+    with pytest.raises(subprocess.CalledProcessError):
+        make_thumb(multi_sidd, tmp_path / "no_num.png")

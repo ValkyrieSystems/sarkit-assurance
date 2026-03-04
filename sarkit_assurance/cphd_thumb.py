@@ -45,12 +45,15 @@ def main(args=None):
     parser.add_argument("cphd_file", help="Path to input CPHD file")
     parser.add_argument(
         "thumbnail_file",
-        help="Path to output thumbnail. The string '{ch_id}' will be replaced with channel identifier.",
+        help="Path to output thumbnail(s). The string '{ch_id}' will be replaced with channel identifier.",
     )
     parser.add_argument(
         "--channel-id",
         action="append",
-        help="Identifier of channel to use. If unspecified, a thumbnail for each channel is generated.",
+        help=(
+            "Identifier of channel to use. May be specified more than once. "
+            "If unspecified, a thumbnail for each channel is generated."
+        ),
     )
     parser.add_argument(
         "--num-mebipixels",

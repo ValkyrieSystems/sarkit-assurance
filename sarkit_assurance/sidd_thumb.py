@@ -1,6 +1,5 @@
 import argparse
 import math
-import pathlib
 import textwrap
 
 import numpy as np
@@ -13,45 +12,10 @@ except ImportError:
     pass
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent("""\
-            Create thumbnails from a SIDD product image. No attempt is made at SIPS processing.
-            The thumbnail's image mode is dependent on the PixelType:
-                MONO8I  -> 8-bit, grayscale
-                MONO8LU -> 8-bit or 16-bit, grayscale (depending on lookup table)
-                MONO16I -> 16-bit, grayscale
-                RGB8LU  -> 3x8-bit, true color
-                RGB24I  -> 3x8-bit, true color
-            """),
-    )
-    parser.add_argument("sidd_file", help="Path to input SIDD file")
-    parser.add_argument(
-        "thumbnail_file",
-        type=pathlib.Path,
-        help="Path to output thumbnail. The format to use is determined from the filename extension.",
-    )
-    parser.add_argument(
-        "--image-number",
-        required=True,
-        type=int,
-        help="0-based index of SIDD Product image to read",
-    )
-    parser.add_argument(
-        "--num-mebipixels",
-        default=1.0,
-        type=float,
-        help="Maximum number of mebipixels to output",
-    )
-    config = parser.parse_args(args)
-
-    output_size = config.num_mebipixels * 2**20
-
-    with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
-        arr = r.read_image(config.image_number)
-
-    img_meta = r.metadata.images[config.image_number]
+def product_image_thumb(sidd_reader, image_number, thumbnail_file, output_size):
+    """Produce a thumbnail for the SIDD product image channel identified by image_number"""
+    arr = sidd_reader.read_image(image_number)
+    img_meta = sidd_reader.metadata.images[image_number]
     px_type = img_meta.xmltree.findtext("{*}Display/{*}PixelType")
     if px_type in ("MONO8I", "MONO16I"):
         img = Image.fromarray(arr)
@@ -78,7 +42,60 @@ def main(args=None):
         )
 
     img.thumbnail((width, height))
-    img.save(config.thumbnail_file)
+    img.save(thumbnail_file)
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.dedent("""\
+            Create thumbnails from SIDD product images. No attempt is made at SIPS processing.
+            Each thumbnail's image mode is dependent on the PixelType:
+                MONO8I  -> 8-bit, grayscale
+                MONO8LU -> 8-bit or 16-bit, grayscale (depending on lookup table)
+                MONO16I -> 16-bit, grayscale
+                RGB8LU  -> 3x8-bit, true color
+                RGB24I  -> 3x8-bit, true color
+            """),
+    )
+    parser.add_argument("sidd_file", help="Path to input SIDD file")
+    parser.add_argument(
+        "thumbnail_file",
+        help=(
+            "Path to output thumbnail(s). The string '{num}' will be replaced with the image number. "
+            "The format to use is determined from the filename extension."
+        ),
+    )
+    parser.add_argument(
+        "--image-number",
+        action="append",
+        type=int,
+        help=(
+            "0-based index of product image to read. May be specified more than once. "
+            "If unspecified, a thumbnail for each product image is generated."
+        ),
+    )
+    parser.add_argument(
+        "--num-mebipixels",
+        default=1.0,
+        type=float,
+        help="Maximum number of mebipixels to output",
+    )
+    config = parser.parse_args(args)
+
+    output_size = config.num_mebipixels * 2**20
+
+    with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
+        if not config.image_number:
+            img_nums = range(len(r.metadata.images))
+        else:
+            img_nums = config.image_number
+        thumbnames = [config.thumbnail_file.format(num=num) for num in img_nums]
+        if len(set(thumbnames)) != len(set(img_nums)):
+            raise RuntimeError("Duplicate output filenames detected")
+
+        for img_num, thumbname in zip(img_nums, thumbnames):
+            product_image_thumb(r, img_num, thumbname, output_size)
 
 
 if __name__ == "__main__":
