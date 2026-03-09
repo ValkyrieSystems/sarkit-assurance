@@ -113,7 +113,7 @@ def multi_sidd(tmp_path_factory):
     basis_etree1 = lxml.etree.parse(sidd_xml)
     basis_etree1.find("./{*}Display/{*}PixelType").text = "MONO16I"
     basis_array1 = (
-        np.asarray(_image(basis_etree1).convert(mode="L")).astype(np.uint16) << 8
+        np.asarray(_image(basis_etree1).convert(mode="L")).astype(np.uint16) << 4
     )
     expected_img_modes.append("I;16")
 
@@ -184,9 +184,7 @@ def multi_sidd(tmp_path_factory):
     basis_etree5 = lxml.etree.parse(sidd_xml)
     basis_array5 = np.asarray(_image(basis_etree5).convert(mode="L"))
     basis_etree5.find("./{*}Display/{*}PixelType").text = "MONO8LU"
-    lookup_table5 = (np.arange(256, dtype=np.uint16) << 8) + np.arange(
-        256, dtype=np.uint16
-    )[::-1]
+    lookup_table5 = np.arange(256, dtype=np.uint16) << 4
     expected_img_modes.append("I;16")
 
     sec = sksidd.NitfSecurityFields(clas="U")
