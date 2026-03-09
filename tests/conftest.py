@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import sarkit.cphd as skcphd
 import sarkit.sidd as sksidd
+import scipy.constants
 from lxml import etree
 from PIL import Image
 
@@ -34,6 +35,7 @@ def _random_array(shape, dtype, reshape=True):
 def make_cphd(tmp_path_factory, sig_format):
     cphd_etree = etree.parse(good_cphd_xml_path)
     ew = skcphd.ElementWrapper(cphd_etree.getroot())
+    xmlhelp = skcphd.XmlHelper(cphd_etree)
     ew["Data"]["SignalArrayFormat"] = sig_format
     cphd_plan = skcphd.Metadata(
         xmltree=cphd_etree,
@@ -42,14 +44,60 @@ def make_cphd(tmp_path_factory, sig_format):
     assert int(cphd_etree.findtext("{*}Data/{*}NumCPHDChannels")) == 1
     num_vectors = ew["Data"]["Channel"][0]["NumVectors"]
     num_samples = ew["Data"]["Channel"][0]["NumSamples"]
+
+    # Make signal array
     sig_dtype = skcphd.binary_format_string_to_dtype(sig_format)
     signal = _random_array((num_vectors, num_samples), sig_dtype)
+
+    # Make PVPs
+    pvp_dtype = skcphd.get_pvp_dtype(cphd_etree)
+    pvps = np.zeros((num_vectors), dtype=pvp_dtype)
+    pvps["TxTime"] = np.linspace(
+        xmlhelp.load(".//{*}TxTime1"),
+        xmlhelp.load(".//{*}TxTime2"),
+        num_vectors,
+        endpoint=True,
+    )
+    arppos = xmlhelp.load(".//{*}ARPPos")
+    arpvel = xmlhelp.load(".//{*}ARPVel")
+    t_ref = xmlhelp.load(".//{*}ReferenceTime")
+
+    arppoly = np.stack([(arppos - t_ref * arpvel), arpvel])
+
+    fx1 = xmlhelp.load(".//{*}FxMin")
+    fx2 = xmlhelp.load(".//{*}FxMax")
+    pvps["FX1"][:] = fx1
+    pvps["FX2"][:] = fx2
+    pvps["SC0"] = fx1
+    pvps["SCSS"] = (fx2 - fx1) / (num_samples - 1)
+    pvps["TOA1"][:] = xmlhelp.load(".//{*}TOAMin")
+    pvps["TOA2"][:] = xmlhelp.load(".//{*}TOAMax")
+
+    pvps["TxPos"] = np.polynomial.polynomial.polyval(pvps["TxTime"], arppoly).T
+    pvps["TxVel"] = np.polynomial.polynomial.polyval(
+        pvps["TxTime"], np.polynomial.polynomial.polyder(arppoly)
+    ).T
+
+    pvps["RcvTime"] = (
+        pvps["TxTime"]
+        + 2.0 * xmlhelp.load(".//{*}SlantRange") / scipy.constants.speed_of_light
+    )
+    pvps["RcvPos"] = np.polynomial.polynomial.polyval(pvps["RcvTime"], arppoly).T
+    pvps["RcvVel"] = np.polynomial.polynomial.polyval(
+        pvps["RcvTime"], np.polynomial.polynomial.polyder(arppoly)
+    ).T
+
+    srp = xmlhelp.load(".//{*}SRP/{*}ECF")
+    pvps["SRPPos"] = srp
+
+    pvps["SIGNAL"] = 1
+
     tmp_cphd = (
         tmp_path_factory.mktemp("data") / good_cphd_xml_path.with_suffix(".cphd").name
     )
     with open(tmp_cphd, "wb") as f, skcphd.Writer(f, cphd_plan) as cw:
         cw.write_signal("1", signal)
-        # don't care about PVPs yet
+        cw.write_pvp("1", pvps)
     return tmp_cphd
 
 
@@ -80,7 +128,7 @@ def multichan_cphd(tmp_path_factory):
 
         new_chparm = copy.deepcopy(cphdew["Channel"]["Parameters"][0])
         new_chparm["Identifier"] = new_datachan["Identifier"]
-        cphdew["Data"].add("Channel", new_datachan)
+        cphdew["Channel"].add("Parameters", new_chparm)
 
     tmp_cphd = tmp_path_factory.mktemp("data") / "multichannel.cphd"
 

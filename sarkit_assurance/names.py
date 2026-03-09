@@ -1,7 +1,7 @@
 import string
 import unicodedata
 
-ALLOWED_CHARS = string.ascii_letters + string.digits + "-_ "
+ALLOWED_CHARS = string.ascii_letters + string.digits + ".-_ "
 ESC_CHAR = "+"
 
 
