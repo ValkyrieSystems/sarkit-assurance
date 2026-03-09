@@ -18,6 +18,9 @@ def product_image_thumb(sidd_reader, image_number, thumbnail_file, output_size):
     img_meta = sidd_reader.metadata.images[image_number]
     px_type = img_meta.xmltree.findtext("{*}Display/{*}PixelType")
     if px_type in ("MONO8I", "MONO16I"):
+        arr = arr.astype(
+            arr.dtype.newbyteorder("="), copy=False
+        )  # PIL doesn't like >u2
         img = Image.fromarray(arr)
     elif px_type == "MONO8LU":
         lut = img_meta.lookup_table
