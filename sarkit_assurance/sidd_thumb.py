@@ -89,15 +89,17 @@ def main(args=None):
     output_size = config.num_mebipixels * 2**20
 
     with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
-        if not config.image_number:
-            img_nums = range(len(r.metadata.images))
-        else:
-            img_nums = config.image_number
-        thumbnames = [config.thumbnail_file.format(num=num) for num in img_nums]
-        if len(set(thumbnames)) != len(set(img_nums)):
+        actual_img_nums = range(len(r.metadata.images))
+        img_nums = set(config.image_number or actual_img_nums)
+        bad_image_numbers = img_nums.difference(actual_img_nums)
+        if bad_image_numbers:
+            raise ValueError(f"{bad_image_numbers=}")
+
+        thumbnames = {num: config.thumbnail_file.format(num=num) for num in img_nums}
+        if len(set(thumbnames.values())) != len(thumbnames):
             raise RuntimeError("Duplicate output filenames detected")
 
-        for img_num, thumbname in zip(img_nums, thumbnames):
+        for img_num, thumbname in thumbnames.items():
             product_image_thumb(r, img_num, thumbname, output_size)
 
 

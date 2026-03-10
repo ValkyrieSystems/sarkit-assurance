@@ -66,21 +66,23 @@ def main(args=None):
     output_size = config.num_mebipixels * 2**20
 
     with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        if not config.channel_id:
-            ch_ids = [
-                x.text
-                for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
-            ]
-        else:
-            ch_ids = config.channel_id
-        thumbnames = [
-            config.thumbnail_file.format(ch_id=names.sanitize_name(ch_id))
-            for ch_id in ch_ids
+        actual_ch_ids = [
+            x.text
+            for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
         ]
-        if len(set(thumbnames)) != len(set(ch_ids)):
+        ch_ids = set(config.channel_id or actual_ch_ids)
+        bad_channel_ids = ch_ids.difference(actual_ch_ids)
+        if bad_channel_ids:
+            raise ValueError(f"{bad_channel_ids=}")
+
+        thumbnames = {
+            ch_id: config.thumbnail_file.format(ch_id=names.sanitize_name(ch_id))
+            for ch_id in ch_ids
+        }
+        if len(set(thumbnames.values())) != len(thumbnames):
             raise RuntimeError("Duplicate output filenames detected")
 
-        for ch_id, thumbname in zip(ch_ids, thumbnames):
+        for ch_id, thumbname in thumbnames.items():
             channel_thumb(r, ch_id, thumbname, output_size)
 
 
