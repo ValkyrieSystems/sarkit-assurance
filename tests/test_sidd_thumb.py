@@ -74,6 +74,13 @@ def test_main(tmp_path, expected_max_num_pixels, multi_sidd):
         assert img.mode == expected_img_mode
 
 
+def test_bad_image_number(tmp_path, multi_sidd):
+    bad_img_num = len(get_expected_img_modes(multi_sidd)) * 10
+    with pytest.raises(subprocess.CalledProcessError):
+        make_thumb(multi_sidd, str(tmp_path / "{num}.png"), img_num=[0, bad_img_num])
+    assert len(list(tmp_path.iterdir())) == 0
+
+
 def test_multi_img(tmp_path, multi_sidd):
     expected_img_modes = get_expected_img_modes(multi_sidd)
     name_pattern = "{num}.png"

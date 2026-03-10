@@ -11,6 +11,14 @@ import tests.utils
 from sarkit_assurance import names
 
 
+def get_chan_ids(cphd_path):
+    with cphd_path.open("rb") as f, skcphd.Reader(f) as r:
+        return [
+            x.text
+            for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
+        ]
+
+
 def test_nominal(tmp_path, example_cphd):
     out_thumb = tmp_path / "out.png"
     expected_max_num_pixels = 2**10
@@ -29,6 +37,25 @@ def test_nominal(tmp_path, example_cphd):
     assert img.format == "PNG"
     assert img.mode == "L"  # 8 bit grayscale
     assert 0 < np.prod(img.size) <= expected_max_num_pixels
+
+
+def test_bad_channel_id(tmp_path, multichan_cphd):
+    bad_channel = "NOTAVALIDCHANNELID"
+    ch_ids = get_chan_ids(multichan_cphd)
+    assert bad_channel not in set(ch_ids)
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "sarkit_assurance.cphd_thumb",
+                str(multichan_cphd),
+                str(tmp_path / "{ch_id}.png"),
+                f"--channel-id={ch_ids[0]}",
+                f"--channel-id={bad_channel}",
+            ],
+        )
+    assert len(list(tmp_path.iterdir())) == 0
 
 
 def test_smart_open(tmp_path, example_cphd):
@@ -53,11 +80,7 @@ def test_smart_open(tmp_path, example_cphd):
 
 
 def test_multichan(tmp_path, multichan_cphd):
-    with multichan_cphd.open("rb") as f, skcphd.Reader(f) as r:
-        ch_ids = [
-            x.text
-            for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
-        ]
+    ch_ids = get_chan_ids(multichan_cphd)
 
     # don't specify ch_ids
     subprocess.check_call(
