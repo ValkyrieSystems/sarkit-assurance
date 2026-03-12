@@ -1,6 +1,5 @@
 """Utilities for generating plots of CPHD metadata"""
 
-# TODO: for dwell plots, determine domain similar to antenna poly
 import argparse
 import html
 import itertools
@@ -17,7 +16,7 @@ import plotly.graph_objects as go
 import plotly.subplots as psp
 import sarkit.cphd as skcphd
 import scipy.constants
-import shapely.affinity
+import shapely
 import shapely.geometry as shg
 
 from . import _plot_metadata
@@ -616,23 +615,49 @@ class Plotter(_plot_metadata.Plotter):
         return figs
 
     def plot_dwell(self):
-        im_rect, im_poly = _make_image_area(
-            self.xml.find("{*}SceneCoordinates/{*}ImageArea"),
-            name="Scene",
-            colors=["magenta"],
-        )
-        iax_samples = np.linspace(im_rect["y"][0], im_rect["y"][2], 129)
-        iay_samples = np.linspace(im_rect["x"][0], im_rect["x"][2], 128)
+        # cod/dwell id -> dict of (channel_id -> valid polygon)
+        cod_poly_info = {}
+        dwell_poly_info = {}
+        for chan in self.channels:
+            chan_param = self.xml.find(
+                f"{{*}}Channel/{{*}}Parameters[{{*}}Identifier='{chan}']"
+            )
+            chan_param_ew = skcphd.ElementWrapper(chan_param)
+            cod_id = chan_param_ew["DwellTimes"]["CODId"]
+            dwell_id = chan_param_ew["DwellTimes"]["DwellId"]
+            cod_poly_info.setdefault(cod_id, {})[chan] = get_valid_area(
+                self.xml, chan_param_ew
+            )
+            dwell_poly_info.setdefault(dwell_id, {})[chan] = get_valid_area(
+                self.xml, chan_param_ew
+            )
 
-        figs = []
-        for element in itertools.chain(
-            self.xml.findall("{*}Dwell/{*}CODTime/{*}CODTimePoly"),
-            self.xml.findall("{*}Dwell/{*}DwellTime/{*}DwellTimePoly"),
-        ):
-            this_poly = skcphd.Poly2dType().parse_elem(element)
-            this_type = lxml.etree.QName(element.getparent()).localname
-            this_identifier = element.getparent().findtext("{*}Identifier")
-            sampled_times = npp.polygrid2d(iax_samples, iay_samples, this_poly)
+        def plot_dt_poly(dt_type, dt_id, chan_info):
+            poly_elem = self.xml.find(
+                f"{{*}}Dwell/{{*}}{dt_type}Time[{{*}}Identifier='{dt_id}']/{{*}}{dt_type}TimePoly"
+            )
+            poly = skcphd.Poly2dType().parse_elem(poly_elem)
+            valid_areas = shg.MultiPolygon(list(chan_info.values()))
+            valid_area_pad = pad_geom(valid_areas, 0.05)
+
+            iax_samples = np.linspace(
+                valid_area_pad.bounds[0], valid_area_pad.bounds[2], 129
+            )
+            iay_samples = np.linspace(
+                valid_area_pad.bounds[1], valid_area_pad.bounds[3], 128
+            )
+
+            iax_grid, iay_grid = np.meshgrid(iax_samples, iay_samples, indexing="ij")
+            grid_points = shg.MultiPoint(
+                np.stack([iax_grid, iay_grid], -1).reshape(-1, 2)
+            )
+            mask = np.array(
+                [pt.within(valid_area_pad) for pt in grid_points.geoms]
+            ).reshape(iax_grid.shape)
+
+            sampled_times = npp.polygrid2d(iax_samples, iay_samples, poly)
+            sampled_times[~mask] = np.nan
+
             fig = px.imshow(
                 sampled_times,
                 x=iay_samples,
@@ -640,25 +665,40 @@ class Plotter(_plot_metadata.Plotter):
                 aspect="auto",
                 origin="lower",
                 color_continuous_scale="gray",
-                labels={"x": "IAY [m]", "y": "IAX [m]", "color": f"{this_type} [s]"},
-                title=f"{self.format_title('Dwell')}<br>{this_type} : {this_identifier}",
+                labels={"x": "IAY [m]", "y": "IAX [m]", "color": f"{dt_type} [s]"},
+                title=f"{self.format_title('Dwell')}<br>{dt_type} : {dt_id}",
             )
-            fig.update_layout(meta=f"dwell_{this_type}_{this_identifier}")
+            fig.update_layout(meta=f"dwell_{dt_type}_{dt_id}")
             fig.update_yaxes(autorange="reversed")
-            if im_poly is not None:
-                im_poly["fill"] = None
-                fig.add_trace(im_poly)
-                fig.update_layout(
-                    showlegend=True,
-                    legend={
-                        "orientation": "h",
-                        "xanchor": "right",
-                        "yanchor": "bottom",
-                        "x": 1,
-                        "y": 1.02,
-                    },
+            for ch_id, poly in chan_info.items():
+                poly_vertices = shapely.get_coordinates(poly.exterior)
+                poly_vertices = np.concatenate([poly_vertices, poly_vertices[:1]])
+                fig.add_scatter(
+                    x=poly_vertices[:, 1],
+                    y=poly_vertices[:, 0],
+                    fill=None,
+                    name=ch_id,
                 )
-            figs.append(fig)
+            fig.update_layout(
+                showlegend=True,
+                legend={
+                    "orientation": "h",
+                    "xanchor": "right",
+                    "yanchor": "bottom",
+                    "x": 1,
+                    "y": 1.02,
+                },
+            )
+            return fig
+
+        figs = [
+            plot_dt_poly("Dwell", dt_id, chan_info)
+            for dt_id, chan_info in dwell_poly_info.items()
+        ]
+        figs += [
+            plot_dt_poly("COD", dt_id, chan_info)
+            for dt_id, chan_info in cod_poly_info.items()
+        ]
         return figs
 
     def plot_pvps(self):
@@ -955,7 +995,7 @@ def plot_fixed_pvp_table(fixed_pvps):
     )
 
 
-def get_valid_targets(xmltree, chan_param_ew, grid_size=11):
+def get_valid_area(xmltree, chan_param_ew):
     ew = skcphd.ElementWrapper(xmltree.getroot())
 
     def get_imagearea_poly(imgarea_ew):
@@ -967,6 +1007,11 @@ def get_valid_targets(xmltree, chan_param_ew, grid_size=11):
     ia_poly = get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
     if "ImageArea" in chan_param_ew:
         ia_poly = get_imagearea_poly(chan_param_ew["ImageArea"])
+    return ia_poly
+
+
+def get_valid_targets(xmltree, chan_param_ew, grid_size=11):
+    ia_poly = get_valid_area(xmltree, chan_param_ew)
 
     # grid of points and intersect
     bounds = np.asarray(ia_poly.bounds).reshape(2, 2)  # [[xmin, ymin], [xmax, ymax]]
@@ -1154,12 +1199,17 @@ def get_antenna_info(xmltree, chan_param_ew, chan_pvps):
     return retval
 
 
+def pad_geom(geom, frac):
+    buffer_len = frac * np.max(np.diff(np.array(geom.bounds).reshape((-1, 2)), axis=0))
+    return geom.buffer(buffer_len)
+
+
 def sample_antenna_polys_near_points(apat_gp_ew, dcs, scale=1.05):
     """Sample antenna polynomials on a grid that encompasses a set of direction cosines."""
     dcs_polygon = shg.MultiPoint(dcs).convex_hull
-    dcs_expanded_polygon = shapely.affinity.scale(
-        dcs_polygon, scale, scale
-    ).intersection(shg.box(-1, -1, 1, 1))
+    dcs_expanded_polygon = pad_geom(dcs_polygon, scale - 1.0).intersection(
+        shg.box(-1, -1, 1, 1)
+    )
 
     x = np.linspace(*dcs_expanded_polygon.envelope.bounds[0::2], 63)
     y = np.linspace(*dcs_expanded_polygon.envelope.bounds[1::2], 65)

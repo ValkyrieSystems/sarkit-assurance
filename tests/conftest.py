@@ -130,6 +130,19 @@ def multichan_cphd(tmp_path_factory):
         new_chparm["Identifier"] = new_datachan["Identifier"]
         cphdew["Channel"].add("Parameters", new_chparm)
 
+    # make channel image areas non-contiguous
+    for index, chan_params in enumerate(cphdew["Channel"]["Parameters"]):
+        low = -500 + 200 * index
+        high = low + 100
+        chan_params["ImageArea"]["X1Y1"] = (low, low)
+        chan_params["ImageArea"]["X2Y2"] = (high, high)
+        chan_params["ImageArea"]["Polygon"] = [
+            (low, low),
+            (low, high),
+            (high, high),
+            (high, low),
+        ]
+
     tmp_cphd = tmp_path_factory.mktemp("data") / "multichannel.cphd"
 
     with open(tmp_cphd, "wb") as f, skcphd.Writer(f, newmeta) as cw:
