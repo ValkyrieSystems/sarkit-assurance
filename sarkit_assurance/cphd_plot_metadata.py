@@ -9,7 +9,6 @@ import lxml.etree
 import numpy as np
 import numpy.linalg as npl
 import numpy.polynomial.polynomial as npp
-import pandas as pd
 import plotly.colors
 import plotly.express as px
 import plotly.graph_objects as go
@@ -56,9 +55,9 @@ class Plotter(_plot_metadata.Plotter):
         super().__init__(title)
 
     # TODO: antenna stuff; does some of this belong in SARkit?
-    # TODO: possibly remove gratuitous pandas use
     def plot_antenna(self):
-        ant_info = []
+        # APATId -> list of antenna info
+        apat_info = {}
         for chan in self.channels:
             chan_param = self.xml.find(
                 f"{{*}}Channel/{{*}}Parameters[{{*}}Identifier='{chan}']"
@@ -67,27 +66,22 @@ class Plotter(_plot_metadata.Plotter):
             if "Antenna" not in chan_param_ew:
                 continue
 
-            ant_info.extend(get_antenna_info(self.xml, chan_param_ew, self.pvps[chan]))
-        df = pd.DataFrame(ant_info)
+            for side in get_antenna_info(self.xml, chan_param_ew, self.pvps[chan]):
+                apat_info.setdefault(side["apat_id"], []).append(side)
+
         figs = []
-        if df.empty:
+        if not apat_info:
             return figs
 
-        for name, group in df.groupby("antenna_name"):
+        for apat_id, infos in apat_info.items():
             for pattern_type, poly_arg in {
                 "Array": "delta_dcs",
                 "Element": "dcs",
             }.items():
                 this_fig = psp.make_subplots(rows=1, cols=2, horizontal_spacing=0.2)
-                domain = np.concatenate(
-                    [
-                        getattr(row, poly_arg).reshape(-1, 2)
-                        for row in group.itertuples()
-                    ],
-                    axis=0,
-                )
+                domain = np.concatenate([x[poly_arg] for x in infos], axis=0)
                 x, y, samples = sample_antenna_polys_near_points(
-                    next(iter(group.itertuples())).antenna_pattern[pattern_type], domain
+                    infos[0]["antenna_pattern"][pattern_type], domain
                 )
                 # Gain
                 this_fig.add_heatmap(
@@ -113,16 +107,16 @@ class Plotter(_plot_metadata.Plotter):
                     colorbar_title="Phase [cycles]",
                     name="Phase",
                 )
-                for row in group.itertuples():
-                    this_domain = getattr(row, poly_arg)
+                for info in infos:
+                    this_domain = info[poly_arg]
                     actual_dcs = go.Scatter(
                         x=this_domain[:, 0],
                         y=this_domain[:, 1],
-                        name=f"{row.channel} <{row.side}>",
+                        name=f"{info['channel']} <{info['side']}>",
                         mode="markers",
                         marker=dict(color="rgba(128, 128, 128, 0.1)"),
                         hoverinfo="skip",
-                        legendgroup=f"{row.channel} <{row.side}>",
+                        legendgroup=f"{info['channel']} <{info['side']}>",
                     )
                     this_fig.add_trace(actual_dcs, row=1, col=1)
                     this_fig.add_trace(actual_dcs, row=1, col=2)
@@ -138,10 +132,10 @@ class Plotter(_plot_metadata.Plotter):
                     },
                     title_text=(
                         f"{self.format_title('Antenna Gain/Phase Polynomials')}<br>"
-                        f"{pattern_type.title()} - {name}"
+                        f"{pattern_type.title()} - APATId: {apat_id}"
                     ),
                     height=700,
-                    meta=f"antenna_polynomial_{pattern_type}_{name}",
+                    meta=f"antenna_polynomial_{pattern_type}_{apat_id}",
                 )
                 label_prefix = "ΔDC" if pattern_type == "Array" else "DC"
                 for col in range(2):
@@ -1169,7 +1163,7 @@ def get_onesided_info(
     eb_dcs = np.stack((eb_dcx, eb_dcy), axis=-1).reshape(-1, 2)
 
     return {
-        "antenna_name": apat_id,
+        "apat_id": apat_id,
         "antenna_pattern": apat_ew,
         "dcs": dcs,
         "eb_dcs": eb_dcs,

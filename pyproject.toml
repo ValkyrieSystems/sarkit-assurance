@@ -23,7 +23,6 @@ dynamic = ["version"]
 dependencies = [
     "lxml>=5.1.0",
     "numpy>=2.0.0",
-    "pandas>=3.0.1",
     "pillow>=12.1.1",
     "plotly>=6.5.2",
     "pyproj>=3.7.2",
@@ -80,7 +79,6 @@ preview = true
 [[tool.mypy.overrides]]
 module = [
     "lxml.*",
-    "pandas.*",
     "plotly.*",
     "pyproj.*",
     "scipy.*",
