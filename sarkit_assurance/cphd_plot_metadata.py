@@ -151,8 +151,8 @@ class Plotter(_plot_metadata.Plotter):
     def plot_timeline(self):
         fig = go.Figure(
             go.Bar(
-                base=[x["TxTime"].min() for x in self.pvps.values()],
-                x=[np.ptp(x["TxTime"]) for x in self.pvps.values()],
+                base=[self.pvps[chan]["TxTime"].min() for chan in self.channels],
+                x=[np.ptp(self.pvps[chan]["TxTime"]) for chan in self.channels],
                 y=list(self.pvps.keys()),
                 orientation="h",
             )
@@ -216,26 +216,24 @@ class Plotter(_plot_metadata.Plotter):
             if ext_poly is not None:
                 fig.add_trace(ext_poly)
 
-        channel_colors = {}
-        for node in self.xml.findall("{*}Channel/{*}Parameters/{*}Identifier"):
-            chan_id = node.text
-            channel_colors[chan_id] = next(color_set)
+        channel_colors = dict(zip(self.channels, color_set))
 
         for channel_ia_element in self.xml.findall(
             "{*}Channel/{*}Parameters/{*}ImageArea"
         ):
             chan_id = channel_ia_element.getparent().findtext("{*}Identifier")
-            fig.add_traces(
-                [
-                    t
-                    for t in _make_image_area(
-                        channel_ia_element,
-                        name=f"Channel: {chan_id}",
-                        colors=channel_colors[chan_id],
-                    )
-                    if t
-                ]
-            )
+            if chan_id in self.channels:
+                fig.add_traces(
+                    [
+                        t
+                        for t in _make_image_area(
+                            channel_ia_element,
+                            name=f"Channel: {chan_id}",
+                            colors=channel_colors[chan_id],
+                        )
+                        if t
+                    ]
+                )
 
         antenna_aiming = self._antenna_aiming_in_image_area()
         for channel, aiming in antenna_aiming.items():
