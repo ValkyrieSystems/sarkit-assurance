@@ -238,10 +238,13 @@ class Plotter(_plot_metadata.Plotter):
         antenna_aiming = self._antenna_aiming_in_image_area()
         for channel, aiming in antenna_aiming.items():
             for txrcv, symbol in zip(
-                ["Tx", "Rcv"], ("triangle-down-open", "triangle-up-open")
+                ["Tx", "TxPVP", "Rcv", "RcvPVP"],
+                ("triangle-down-open", "y-down", "triangle-up-open", "y-up"),
             ):
+                if txrcv not in aiming:
+                    continue
                 boresights = aiming[txrcv]["boresights"]
-                apcid = aiming[txrcv]["APCId"]
+                apcid = aiming[txrcv].get("APCId")
 
                 def add_boresight_trace(points, name, color):
                     fig.add_trace(
@@ -250,8 +253,14 @@ class Plotter(_plot_metadata.Plotter):
                             y=points[:, 0],
                             name=name,
                             legendgroup=name,
+                            showlegend=False,
                             mode="lines+markers",
-                            marker=dict(symbol=symbol, color=color),
+                            marker=dict(
+                                symbol=symbol,
+                                line_color=color,
+                                color=color,
+                                line_width=2,
+                            ),
                         )
                     )
                     first_point = points[np.isfinite(points[:, 0])][0]
@@ -261,21 +270,29 @@ class Plotter(_plot_metadata.Plotter):
                             y=[first_point[0]],
                             name=name,
                             legendgroup=name,
-                            showlegend=False,
+                            showlegend=True,
                             mode="lines+markers",
-                            marker=dict(symbol=symbol, size=15, color=color),
+                            marker=dict(
+                                symbol=symbol,
+                                size=15,
+                                line_color=color,
+                                color=color,
+                                line_width=2,
+                            ),
                         )
                     )
 
                 add_boresight_trace(
                     boresights["mechanical"],
-                    name=f"Channel: {channel} {txrcv} MB ({apcid})",
+                    name=f"Channel: {channel} {txrcv} MB "
+                    + (f"({apcid})" if apcid is not None else "PVP"),
                     color=channel_colors[channel][0],
                 )
                 if "electrical" in boresights:
                     add_boresight_trace(
                         boresights["electrical"],
-                        name=f"Channel: {channel} {txrcv} EB ({apcid})",
+                        name=f"Channel: {channel} {txrcv} EB "
+                        + (f"({apcid})" if apcid is not None else "PVP"),
                         color=channel_colors[channel][-1],
                     )
 
@@ -323,35 +340,42 @@ class Plotter(_plot_metadata.Plotter):
         iay = self.ew["SceneCoordinates"]["ReferenceSurface"]["Planar"]["uIAY"]
         iaz = np.cross(iax, iay)
 
+        def _intersect_boresight_with_image_area(apc_positions, uacx, uacy, ebx, eby):
+            uacz = np.cross(uacx, uacy)
+            ebz = (1 - ebx**2 - eby**2) ** 0.5
+
+            along = (
+                uacx * np.asarray(ebx)[..., np.newaxis]
+                + uacy * np.asarray(eby)[..., np.newaxis]
+                + uacz * np.asarray(ebz)[..., np.newaxis]
+            )
+
+            distance = -np.vecdot(apc_positions - iarp, iaz) / np.vecdot(along, iaz)
+            plane_points_ecf = apc_positions + distance[:, np.newaxis] * along
+            plane_points_x = np.vecdot(plane_points_ecf - iarp, iax)
+            plane_points_y = np.vecdot(plane_points_ecf - iarp, iay)
+            return np.stack((plane_points_x, plane_points_y)).T
+
         def _compute_boresights(apc_id, antpat_id, times, apc_positions):
             acf_id = apcs[apc_id]["acf_id"]
             uacx = npp.polyval(times, acfs[acf_id]["xaxis_poly"]).T
             uacy = npp.polyval(times, acfs[acf_id]["yaxis_poly"]).T
-            uacz = np.cross(uacx, uacy)
 
-            def _project_apc_into_image_area(along):
-                distance = -np.vecdot(apc_positions - iarp, iaz) / np.vecdot(along, iaz)
-                plane_points_ecf = apc_positions + distance[:, np.newaxis] * along
-                plane_points_x = np.vecdot(plane_points_ecf - iarp, iax)
-                plane_points_y = np.vecdot(plane_points_ecf - iarp, iay)
-                return np.stack((plane_points_x, plane_points_y)).T
-
-            boresights = {"mechanical": _project_apc_into_image_area(uacz)}
+            boresights = {
+                "mechanical": _intersect_boresight_with_image_area(
+                    apc_positions, uacx, uacy, 0, 0
+                )
+            }
 
             if any(patterns[antpat_id]["dcx_poly"]) or any(
                 patterns[antpat_id]["dcy_poly"]
             ):
                 eb_dcx = npp.polyval(times, patterns[antpat_id]["dcx_poly"])
                 eb_dcy = npp.polyval(times, patterns[antpat_id]["dcy_poly"])
-                eb_dcz = np.sqrt(1 - eb_dcx**2 - eb_dcy**2)
-                eb = np.stack((eb_dcx, eb_dcy, eb_dcz)).T
 
-                eb_boresight = np.zeros_like(uacz)
-                eb_boresight += eb[:, 0, np.newaxis] * uacx
-                eb_boresight += eb[:, 1, np.newaxis] * uacy
-                eb_boresight += eb[:, 2, np.newaxis] * uacz
-
-                boresights["electrical"] = _project_apc_into_image_area(eb_boresight)
+                boresights["electrical"] = _intersect_boresight_with_image_area(
+                    apc_positions, uacx, uacy, eb_dcx, eb_dcy
+                )
 
             return boresights
 
@@ -388,6 +412,24 @@ class Plotter(_plot_metadata.Plotter):
                     pvp_data["RcvPos"][indices],
                 ),
             }
+            pvp_sides = [
+                side for side in ["Tx", "Rcv"] if f"{side}ACX" in pvp_data.dtype.fields
+            ]
+            for side in pvp_sides:
+                uacx = pvp_data[f"{side}ACX"][indices]
+                uacy = pvp_data[f"{side}ACY"][indices]
+                eb = pvp_data[f"{side}EB"][indices]
+                pos = pvp_data[f"{side}Pos"][indices]
+                results[channel][f"{side}PVP"] = {
+                    "boresights": {
+                        "mechanical": _intersect_boresight_with_image_area(
+                            pos, uacx, uacy, 0, 0
+                        ),
+                        "electrical": _intersect_boresight_with_image_area(
+                            pos, uacx, uacy, eb[:, 0], eb[:, 1]
+                        ),
+                    }
+                }
         return results
 
     def plot_image_grid(self):

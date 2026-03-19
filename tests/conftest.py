@@ -12,7 +12,7 @@ from PIL import Image
 
 DATAPATH = pathlib.Path(__file__).parents[1] / "data"
 
-good_cphd_xml_path = DATAPATH / "example-cphd-1.0.1.xml"
+good_cphd_xml_path = DATAPATH / "example-cphd-1.1.0.xml"
 
 
 def _random_array(shape, dtype, reshape=True):
@@ -89,6 +89,22 @@ def make_cphd(tmp_path_factory, sig_format):
 
     srp = xmlhelp.load(".//{*}SRP/{*}ECF")
     pvps["SRPPos"] = srp
+
+    def unit(x):
+        return x / np.linalg.norm(x, axis=-1, keepdims=True)
+
+    tx_acz = unit(srp - pvps["TxPos"])
+    rcv_acz = unit(srp - pvps["RcvPos"])
+    tx_acx = unit(np.cross(pvps["TxVel"], tx_acz))
+    rcv_acx = unit(np.cross(pvps["RcvVel"], rcv_acz))
+    tx_acy = unit(np.cross(tx_acz, tx_acx))
+    rcv_acy = unit(np.cross(rcv_acz, rcv_acx))
+    pvps["TxACY"] = tx_acy
+    pvps["TxACX"] = tx_acx
+    pvps["TxEB"] = 0
+    pvps["RcvACY"] = rcv_acy
+    pvps["RcvACX"] = rcv_acx
+    pvps["RcvEB"] = 0
 
     pvps["SIGNAL"] = 1
 

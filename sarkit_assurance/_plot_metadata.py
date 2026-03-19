@@ -181,7 +181,7 @@ class Plotter:
         header = '<html>\n<head><meta charset="utf-8"/></head>\n<body>\n'
 
         # Add table of contents
-        toc = (  # noqa: E131
+        toc = (
             "<div>"
             "<h1>Contents</h1>"
             "<ul>"
