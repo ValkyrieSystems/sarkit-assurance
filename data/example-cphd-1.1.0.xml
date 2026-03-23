@@ -394,6 +394,7 @@
       <Y0>-0.0008757233333385719</Y0>
       <XSS>8.757233333385719e-05</XSS>
       <YSS>8.757233333385719e-05</YSS>
+      <NODATA>40490fdb402df854</NODATA>
     </AntGainPhase>
     <AntGainPhase>
       <Identifier>transmit_element</Identifier>
