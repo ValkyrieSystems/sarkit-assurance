@@ -576,7 +576,6 @@ class Plotter(_plot_metadata.Plotter):
 
     def _plot_support_array(self, sa_id):
         data = self.support_arrays[sa_id]
-        # TODO: handle mask somehow
         sa_elem = self.xml.find(f'{{*}}SupportArray/*[{{*}}Identifier="{sa_id}"]')
         sa_ew = skcphd.ElementWrapper(sa_elem)
         if sa_elem.tag.endswith("IAZArray"):
@@ -596,6 +595,12 @@ class Plotter(_plot_metadata.Plotter):
         ]
 
         def make_fig(img, title=None):
+            if np.ma.is_masked(img):
+                fimg = np.array(
+                    img, dtype=np.float64 if img.dtype.itemsize > 4 else np.float32
+                )
+                np.copyto(fimg, np.nan, where=img.mask)
+                img = fimg
             fig = px.imshow(
                 img.T,
                 x=domains[0],
@@ -604,6 +609,15 @@ class Plotter(_plot_metadata.Plotter):
                 title=title,
                 origin="lower",
                 labels=dict(zip(("x", "y", "color"), axis_labels)),
+            )
+            fig.add_shape(
+                type="rect",
+                xref="x",
+                yref="y",
+                x0=domains[0].min() - sa_ew["XSS"] / 2,
+                y0=domains[1].min() - sa_ew["YSS"] / 2,
+                x1=domains[0].max() + sa_ew["XSS"] / 2,
+                y1=domains[1].max() + sa_ew["YSS"] / 2,
             )
             fig.update_layout(meta=title)
             return fig
@@ -620,6 +634,8 @@ class Plotter(_plot_metadata.Plotter):
                         make_fig(data.imag),
                         "imag" if title is None else f"imag({title})",
                     )
+                elif data.dtype.str.startswith("S"):
+                    return figs
                 else:
                     figs.append(make_fig(data, title))
             else:

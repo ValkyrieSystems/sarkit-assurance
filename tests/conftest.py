@@ -49,6 +49,13 @@ def make_cphd(tmp_path_factory, sig_format):
     sig_dtype = skcphd.binary_format_string_to_dtype(sig_format)
     signal = _random_array((num_vectors, num_samples), sig_dtype)
 
+    # make  support array
+    sa_dtype = skcphd.binary_format_string_to_dtype("Gain=F4;Phase=F4;")
+    sa = np.zeros((21, 21), sa_dtype)
+    sa[:, 0] = (np.pi, np.e)
+    sa[0, :] = (np.pi, np.e)
+    sa[10, :] = (np.pi, np.e)
+
     # Make PVPs
     pvp_dtype = skcphd.get_pvp_dtype(cphd_etree)
     pvps = np.zeros((num_vectors), dtype=pvp_dtype)
@@ -114,6 +121,7 @@ def make_cphd(tmp_path_factory, sig_format):
     with open(tmp_cphd, "wb") as f, skcphd.Writer(f, cphd_plan) as cw:
         cw.write_signal("1", signal)
         cw.write_pvp("1", pvps)
+        cw.write_support_array("transmit_array", sa)
     return tmp_cphd
 
 
@@ -129,6 +137,7 @@ def multichan_cphd(tmp_path_factory):
     with onechan_cphd.open("rb") as f, skcphd.Reader(f) as r:
         ch_id = r.metadata.xmltree.findtext(".//{*}RefChId")
         sig, pvps = r.read_channel(ch_id)
+        sa = r.read_support_array("transmit_array")
 
     newmeta = copy.deepcopy(r.metadata)
     cphdew = skcphd.ElementWrapper(newmeta.xmltree.getroot())
@@ -164,6 +173,7 @@ def multichan_cphd(tmp_path_factory):
     with open(tmp_cphd, "wb") as f, skcphd.Writer(f, newmeta) as cw:
         cw.write_pvp(ch_id, pvps)
         cw.write_signal(ch_id, sig)
+        cw.write_support_array("transmit_array", sa)
     yield tmp_cphd
 
 
