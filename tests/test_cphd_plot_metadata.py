@@ -189,3 +189,50 @@ def test_smart_open(tmp_path, multichan_cphd):
             ],
         )
     assert len(list(tmp_path.glob("*.html"))) > 0
+
+
+def test_main_all_support_arrays(tmp_path, multichan_cphd):
+    default_dir = tmp_path / "default"
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "sarkit_assurance.cphd_plot_metadata",
+            str(multichan_cphd),
+            str(default_dir),
+            "-qc",
+            "--ref-chan",
+        ]
+    )
+
+    all_dir = tmp_path / "all"
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "sarkit_assurance.cphd_plot_metadata",
+            str(multichan_cphd),
+            str(all_dir),
+            "-qc",
+            "--ref-chan",
+            "--all-support-arrays",
+        ]
+    )
+
+    dta_chan_dir = tmp_path / "dta_chan"
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "sarkit_assurance.cphd_plot_metadata",
+            str(multichan_cphd),
+            str(dta_chan_dir),
+            "-qc",
+            "--chan=1_copy/1",
+        ]
+    )
+    default_file = next(iter(default_dir.glob("*.html")))
+    all_file = next(iter(all_dir.glob("*.html")))
+    dta_chan_file = next(iter(dta_chan_dir.glob("*.html")))
+    assert all_file.stat().st_size > default_file.stat().st_size
+    assert dta_chan_file.stat().st_size > default_file.stat().st_size

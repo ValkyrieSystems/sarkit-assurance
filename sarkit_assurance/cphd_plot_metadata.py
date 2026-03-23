@@ -29,28 +29,66 @@ except ImportError:
 class Plotter(_plot_metadata.Plotter):
     """A CPHD metadata plotter class."""
 
-    def __init__(self, file, title, *, channels=None, include_fixed_pvps=False):
+    def __init__(
+        self,
+        file,
+        title,
+        *,
+        channels=None,
+        include_fixed_pvps=False,
+        include_all_support_arrays=False,
+    ):
         with skcphd.Reader(file) as r:
             self.xml = r.metadata.xmltree
             self.ew = skcphd.ElementWrapper(self.xml.getroot())
             all_channels = [chan["Identifier"] for chan in self.ew["Data"]["Channel"]]
             self.pvps = {ch_id: r.read_pvps(ch_id) for ch_id in all_channels}
-            self.support_arrays = {
-                x.text: r.read_support_array(x.text)
-                for x in self.xml.findall("{*}Data/{*}SupportArray/{*}Identifier")
-            }
 
-        if not channels:
-            self.channels = all_channels
-        else:
-            if not set(channels) <= set(all_channels):
-                raise ValueError(
-                    (
-                        f"Unrecognized channel(s): {set(channels) - set(all_channels)}; "
-                        f"Must be from: {all_channels}"
+            if not channels:
+                self.channels = all_channels
+            else:
+                if not set(channels) <= set(all_channels):
+                    raise ValueError(
+                        (
+                            f"Unrecognized channel(s): {set(channels) - set(all_channels)}; "
+                            f"Must be from: {all_channels}"
+                        )
                     )
-                )
-            self.channels = channels
+                self.channels = channels
+            if include_all_support_arrays:
+                sa_ids = [
+                    x.text
+                    for x in self.xml.findall("{*}Data/{*}SupportArray/{*}Identifier")
+                ]
+            else:
+                sa_id_elems = []
+                for ch_id in self.channels:
+                    ant_pats = self.xml.findall(
+                        f'{{*}}Channel/{{*}}Parameters[{{*}}Identifier="{ch_id}"]/{{*}}Antenna/{{*}}TxAPATId'
+                    ) + self.xml.findall(
+                        f'{{*}}Channel/{{*}}Parameters[{{*}}Identifier="{ch_id}"]/{{*}}Antenna/{{*}}RcvAPATId'
+                    )
+                    for ant_pat in ant_pats:
+                        apat_id = ant_pat.text
+                        sa_id_elems.extend(
+                            self.xml.findall(
+                                f'{{*}}Antenna/{{*}}AntPattern[{{*}}Identifier="{apat_id}"]/*/{{*}}AntGPId'
+                            )
+                            + self.xml.findall(
+                                f'{{*}}Antenna/{{*}}AntPattern[{{*}}Identifier="{apat_id}"]/{{*}}GainPhaseArray/{{*}}ArrayId'
+                            )
+                            + self.xml.findall(
+                                f'{{*}}Antenna/{{*}}AntPattern[{{*}}Identifier="{apat_id}"]/{{*}}GainPhaseArray/{{*}}ElementId'
+                            )
+                        )
+                    sa_id_elems.extend(
+                        self.xml.findall(
+                            f'{{*}}Channel/{{*}}Parameters[{{*}}Identifier="{ch_id}"]/{{*}}DwellTimes/{{*}}DTAId'
+                        )
+                    )
+                sa_ids = {x.text for x in sa_id_elems}
+
+            self.support_arrays = {x: r.read_support_array(x) for x in sa_ids}
         self.include_fixed_pvps = include_fixed_pvps
         super().__init__(title)
 
@@ -1310,6 +1348,11 @@ def main(args=None):
         dest="auto_open",
         help="don't open plots after creation",
     )
+    parser.add_argument(
+        "--all-support-arrays",
+        action="store_true",
+        help="plot all support arrays. Default is to plot only support arrays referenced by a plotted channel",
+    )
     channel_group = parser.add_mutually_exclusive_group()
     channel_group.add_argument(
         "--ref-chan", action="store_true", help="only use the reference channel's PVPs"
@@ -1334,6 +1377,7 @@ def main(args=None):
             html.escape(config.cphd_file),
             channels=channels,
             include_fixed_pvps=config.plot_fixed,
+            include_all_support_arrays=config.all_support_arrays,
         )
     save_func = plotter.save_combined if config.concatenate else plotter.save_separate
     prefix = (

@@ -155,6 +155,9 @@ def multichan_cphd(tmp_path_factory):
         new_chparm["Identifier"] = new_datachan["Identifier"]
         cphdew["Channel"].add("Parameters", new_chparm)
 
+    # attach DwellTimeArray to single channel only
+    new_chparm["DwellTimes"]["DTAId"] = "dwell_array"
+
     # make channel image areas non-contiguous
     for index, chan_params in enumerate(cphdew["Channel"]["Parameters"]):
         low = -500 + 200 * index
