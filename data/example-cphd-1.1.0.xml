@@ -160,7 +160,7 @@
       <SignalArrayByteOffset>0</SignalArrayByteOffset>
       <PVPArrayByteOffset>0</PVPArrayByteOffset>
     </Channel>
-    <NumSupportArrays>4</NumSupportArrays>
+    <NumSupportArrays>5</NumSupportArrays>
     <SupportArray>
       <Identifier>transmit_array</Identifier>
       <NumRows>21</NumRows>
@@ -188,6 +188,13 @@
       <NumCols>2</NumCols>
       <BytesPerElement>8</BytesPerElement>
       <ArrayByteOffset>7088</ArrayByteOffset>
+    </SupportArray>
+    <SupportArray>
+      <Identifier>dwell_array</Identifier>
+      <NumRows>21</NumRows>
+      <NumCols>21</NumCols>
+      <BytesPerElement>8</BytesPerElement>
+      <ArrayByteOffset>7120</ArrayByteOffset>
     </SupportArray>
   </Data>
   <Channel>
@@ -420,6 +427,14 @@
       <XSS>2.0</XSS>
       <YSS>2.0</YSS>
     </AntGainPhase>
+    <DwellTimeArray>
+      <Identifier>dwell_array</Identifier>
+      <ElementFormat>COD=F4;DT=F4;</ElementFormat>
+      <X0>-1600</X0>
+      <Y0>-1650</Y0>
+      <XSS>160</XSS>
+      <YSS>165</YSS>
+    </DwellTimeArray>
   </SupportArray>
   <Dwell>
     <NumCODTimes>1</NumCODTimes>
