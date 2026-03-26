@@ -343,6 +343,47 @@ class Plotter(_plot_metadata.Plotter):
         fig.update_yaxes(autorange="reversed")
         return [fig]
 
+    def plot_map(self):
+        """Plot some locations on a map"""
+        iarp_lat, iarp_lon, _ = self.ew["SceneCoordinates"]["IARP"]["LLH"]
+        iacps = self.ew["SceneCoordinates"]["ImageAreaCornerPoints"]
+        # repeat start to close polygon
+        iacps = np.concatenate([iacps, iacps[:1]], axis=0)
+
+        fig = go.Figure(go.Scattergeo())
+        fig.update_geos(
+            projection_type="orthographic",
+            showcountries=True,
+            lataxis_showgrid=True,
+            lonaxis_showgrid=True,
+            projection={"rotation": {"lat": iarp_lat, "lon": iarp_lon}, "scale": 1},
+        )
+        fig.update_layout(
+            height=700,
+            title_text=self.format_title("Map"),
+            meta="map",
+        )
+        fig.add_trace(
+            go.Scattergeo(
+                lon=[iarp_lon],
+                lat=[iarp_lat],
+                mode="markers",
+                marker={"size": 10, "symbol": "diamond"},
+                text="IARP",
+                name="IARP",
+            )
+        )
+        fig.add_trace(
+            go.Scattergeo(
+                lon=iacps[:, 1],
+                lat=iacps[:, 0],
+                mode="lines+markers",
+                text=[f"IACP({x % 4 + 1})" for x in range(5)],
+                name="IACPs",
+            )
+        )
+        return [fig]
+
     def _antenna_aiming_in_image_area(self):
         results = {}
 
