@@ -5,14 +5,15 @@ import lxml.etree
 import numpy as np
 import pytest
 import sarkit.cphd as skcphd
+import sarkit.sicd as sksicd
 import sarkit.sidd as sksidd
 import scipy.constants
-from lxml import etree
 from PIL import Image
 
 DATAPATH = pathlib.Path(__file__).parents[1] / "data"
 
 good_cphd_xml_path = DATAPATH / "example-cphd-1.1.0.xml"
+good_sicd_xml_path = DATAPATH / "example-sicd-1.4.0.xml"
 
 
 def _random_array(shape, dtype, reshape=True):
@@ -33,7 +34,7 @@ def _random_array(shape, dtype, reshape=True):
 
 
 def make_cphd(tmp_path_factory, sig_format):
-    cphd_etree = etree.parse(good_cphd_xml_path)
+    cphd_etree = lxml.etree.parse(good_cphd_xml_path)
     ew = skcphd.ElementWrapper(cphd_etree.getroot())
     xmlhelp = skcphd.XmlHelper(cphd_etree)
     ew["Data"]["SignalArrayFormat"] = sig_format
@@ -329,3 +330,30 @@ def multi_sidd(tmp_path_factory):
             writer.write_image(4, basis_array4)
             writer.write_image(5, basis_array5)
     yield tmp_sidd
+
+
+@pytest.fixture
+def sicd_xml():
+    return good_sicd_xml_path
+
+
+@pytest.fixture(scope="session")
+def example_sicd(tmp_path_factory):
+    sicd_etree = lxml.etree.parse(good_sicd_xml_path)
+    tmp_sicd = (
+        tmp_path_factory.mktemp("data") / good_sicd_xml_path.with_suffix(".sicd").name
+    )
+    sec = {"security": {"clas": "U"}}
+    sicd_meta = sksicd.NitfMetadata(
+        xmltree=sicd_etree,
+        file_header_part={"ostaid": "nowhere"} | sec,
+        im_subheader_part={"isorce": "this sensor"} | sec,
+        de_subheader_part=sec,
+    )
+    nrows = int(sicd_etree.findtext("{*}ImageData/{*}NumRows"))
+    ncols = int(sicd_etree.findtext("{*}ImageData/{*}NumCols"))
+    pixel_type = sicd_etree.findtext("{*}ImageData/{*}PixelType")
+    dtype = sksicd.PIXEL_TYPES[pixel_type]["dtype"]
+    with open(tmp_sicd, "wb") as f, sksicd.NitfWriter(f, sicd_meta) as w:
+        w.write_image(_random_array((nrows, ncols), dtype))
+    yield tmp_sicd
