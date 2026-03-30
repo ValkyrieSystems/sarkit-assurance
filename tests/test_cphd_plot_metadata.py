@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import sarkit.cphd as skcphd
 
+import sarkit_assurance.cphd_plot_metadata
 import sarkit_assurance.names
 import tests.utils
 
@@ -236,3 +237,12 @@ def test_main_all_support_arrays(tmp_path, multichan_cphd):
     dta_chan_file = next(iter(dta_chan_dir.glob("*.html")))
     assert all_file.stat().st_size > default_file.stat().st_size
     assert dta_chan_file.stat().st_size > default_file.stat().st_size
+
+
+def test_available_figures(multichan_cphd):
+    with multichan_cphd.open("rb") as f:
+        plotter = sarkit_assurance.cphd_plot_metadata.Plotter(f, multichan_cphd.name)
+        available_figs = plotter.make_available_figures()
+    all_plotters = {x.__name__ for x in plotter.plotters}
+    assert not set(available_figs).difference(all_plotters)
+    assert not set(all_plotters).difference(available_figs)

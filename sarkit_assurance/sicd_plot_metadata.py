@@ -432,7 +432,7 @@ class Plotter(_plot_metadata.Plotter):
             fig.add_scatter(
                 x=[(start_samp + end_samp) / 2.0],
                 y=[(start_line + end_line) / 2.0],
-                text=seg.findtext("Identifier"),
+                text=seg_id,
                 mode="text",
                 legendgroup=seg_id,
                 showlegend=False,
@@ -893,6 +893,7 @@ class Plotter(_plot_metadata.Plotter):
             fig.update_layout(
                 title=title,
                 height=self.nominal_height / 2,
+                meta="weights",
             )
             figures.append(fig)
         return figures

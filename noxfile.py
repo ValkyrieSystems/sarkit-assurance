@@ -33,3 +33,5 @@ def lint(session):
 @nox.session(requires=[])
 def test(session):
     """Run the required tests"""
+    session.run_install("pdm", "sync", "-G", "dev-test", external=True)
+    session.run("pytest", "tests")
