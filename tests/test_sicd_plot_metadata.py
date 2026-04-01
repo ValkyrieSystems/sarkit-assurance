@@ -74,14 +74,13 @@ def test_tgt_spatial_freq_support_missing_poly(sicd_xml, tmp_path):
     assert result
 
 
-def test_weights(sicd_xml, tmp_path):
-    sicd_ew = sksicd.ElementWrapper(lxml.etree.parse(sicd_xml).getroot())
-    sicd_ew["Grid"]["Row"]["WgtFunct"] = [0.5, 1, 0.5]
-    tmp_sicd = tmp_path / "sicd.xml"
-    tmp_sicd.write_bytes(lxml.etree.tostring(sicd_ew.elem))
-    plt = plot_metadata.Plotter(tmp_sicd, "sicd.xml")
-    result = plt.plot_weights()
-    assert result
+def test_available_figures(example_sicd):
+    with example_sicd.open("rb") as f:
+        plotter = plot_metadata.Plotter(f, example_sicd.name, use_sample_data=True)
+        available_figs = plotter.make_available_figures()
+    all_plotters = {x.__name__ for x in plotter.plotters}
+    assert not set(available_figs).difference(all_plotters)
+    assert not set(all_plotters).difference(available_figs)
 
 
 def test_downsample_last_dim():

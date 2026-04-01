@@ -373,6 +373,11 @@
       <DeltaKCOAPoly order1="0" order2="0">
         <Coef exponent1="0" exponent2="0">-7.1054273576009995e-15</Coef>
       </DeltaKCOAPoly>
+      <WgtFunct size="3">
+        <Wgt index="1">0.24</Wgt>
+        <Wgt index="2">1</Wgt>
+        <Wgt index="3">0.24</Wgt>
+      </WgtFunct>
     </Row>
     <Col>
       <UVectECF>
@@ -390,6 +395,11 @@
       <DeltaKCOAPoly order1="0" order2="0">
         <Coef exponent1="0" exponent2="0">-0.0</Coef>
       </DeltaKCOAPoly>
+      <WgtFunct size="3">
+        <Wgt index="1">0.08</Wgt>
+        <Wgt index="2">1</Wgt>
+        <Wgt index="3">0.08</Wgt>
+      </WgtFunct>
     </Col>
   </Grid>
   <Timeline>
@@ -596,6 +606,22 @@
           <NumSamples>2251</NumSamples>
           <FirstSample>0</FirstSample>
         </YDir>
+        <SegmentList size="2">
+          <Segment index="1">
+            <StartLine>0</StartLine>
+            <StartSample>0</StartSample>
+            <EndLine>6972</EndLine>
+            <EndSample>1125</EndSample>
+            <Identifier>seg_a</Identifier>
+          </Segment>
+          <Segment index="2">
+            <StartLine>0</StartLine>
+            <StartSample>1127</StartSample>
+            <EndLine>6972</EndLine>
+            <EndSample>2250</EndSample>
+            <Identifier>seg_b</Identifier>
+          </Segment>
+        </SegmentList>
       </Plane>
     </Area>
   </RadarCollection>
@@ -611,6 +637,7 @@
       <MinProc>9831251195.31346</MinProc>
       <MaxProc>10168748804.68658</MaxProc>
     </TxFrequencyProc>
+    <SegmentIdentifier>seg_a</SegmentIdentifier>
     <ImageFormAlgo>PFA</ImageFormAlgo>
     <STBeamComp>NO</STBeamComp>
     <ImageBeamComp>NO</ImageBeamComp>
