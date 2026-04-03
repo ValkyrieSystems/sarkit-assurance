@@ -528,6 +528,7 @@ class Plotter(_plot_metadata.Plotter):
             f"Grid in Image Area Coordinates: {grid_image_area[0]:.2f} m x {grid_image_area[1]:.2f} m<br>"
             f"Spacing [m]: {grid_spacing}"
         )
+        colors = itertools.cycle(plotly.colors.qualitative.Plotly)
         fig = psp.make_subplots(cols=2, subplot_titles=(grid_title, coord_title))
         grid_first = [grid["IAXExtent"]["FirstLine"], grid["IAYExtent"]["FirstSample"]]
         grid_indices = (
@@ -545,18 +546,59 @@ class Plotter(_plot_metadata.Plotter):
         iarp_ls = grid["IARPLocation"]
         grid_coords = (grid_indices + grid_first - iarp_ls) * grid_spacing
         iarp_coord = [0, 0]
+
+        # Plot grid extent
+        color = next(colors)
         fig.add_trace(
             go.Scatter(
                 x=grid_indices[:, 1],
                 y=grid_indices[:, 0],
                 fill="toself",
-                name="Indices",
+                name="Image Grid",
+                legendgroup="Image Grid",
+                line_color=color,
             ),
             row=1,
             col=1,
         )
         fig.add_trace(
-            go.Scatter(x=[iarp_ls[1]], y=[iarp_ls[0]], name="IARP"), row=1, col=1
+            go.Scatter(
+                x=grid_coords[:, 1],
+                y=grid_coords[:, 0],
+                fill="toself",
+                name="Image Grid",
+                legendgroup="Image Grid",
+                line_color=color,
+                showlegend=False,
+            ),
+            row=1,
+            col=2,
+        )
+
+        # Plot IARP
+        color = next(colors)
+        fig.add_trace(
+            go.Scatter(
+                x=[iarp_ls[1]],
+                y=[iarp_ls[0]],
+                name="IARP",
+                legendgroup="IARP",
+                marker_color=color,
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[iarp_coord[1]],
+                y=[iarp_coord[0]],
+                name="IARP",
+                legendgroup="IARP",
+                marker_color=color,
+                showlegend=False,
+            ),
+            row=1,
+            col=2,
         )
         fig.update_xaxes(title_text="Samples", row=1, col=1)
         fig.update_yaxes(
@@ -567,48 +609,6 @@ class Plotter(_plot_metadata.Plotter):
             row=1,
             col=1,
         )
-
-        fig.add_trace(
-            go.Scatter(
-                x=grid_coords[:, 1],
-                y=grid_coords[:, 0],
-                fill="toself",
-                name="Coordinates",
-            ),
-            row=1,
-            col=2,
-        )
-        fig.add_trace(
-            go.Scatter(x=[iarp_coord[1]], y=[iarp_coord[0]], name="IARP"), row=1, col=2
-        )
-
-        for segment in grid["SegmentList"].get("Segment", []):
-            name = segment["Identifier"]
-            seg_indices = np.array(
-                segment["SegmentPolygon"].tolist() + [segment["SegmentPolygon"][0]]
-            )
-            seg_coords = (seg_indices + grid_first - iarp_ls) * grid_spacing
-            fig.add_trace(
-                go.Scatter(
-                    x=seg_indices[:, 1],
-                    y=seg_indices[:, 0],
-                    name=name,
-                    line={"dash": "dot"},
-                ),
-                row=1,
-                col=1,
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=seg_coords[:, 1],
-                    y=seg_coords[:, 0],
-                    name=name,
-                    line={"dash": "dot"},
-                ),
-                row=1,
-                col=2,
-            )
-
         fig.update_xaxes(title_text="IAY [m]", row=1, col=2)
         fig.update_yaxes(
             title_text="IAX [m]",
@@ -622,6 +622,8 @@ class Plotter(_plot_metadata.Plotter):
             title_text=self.format_title("Image Grid"), height=700, meta="image_grid"
         )
 
+        # Plot ImageArea
+        color = next(colors)
         im_rect, im_poly = _make_image_area(
             self.xml.find("{*}SceneCoordinates/{*}ImageArea"),
             name="Scene",
@@ -635,8 +637,9 @@ class Plotter(_plot_metadata.Plotter):
             go.Scatter(
                 x=ia_indices[:, 1],
                 y=ia_indices[:, 0],
-                name="ImageArea Indices",
-                line={"dash": "dash"},
+                name="ImageArea",
+                legendgroup="ImageArea",
+                line={"dash": "dash", "color": color},
             ),
             row=1,
             col=1,
@@ -645,12 +648,46 @@ class Plotter(_plot_metadata.Plotter):
             go.Scatter(
                 x=ia_coords[:, 1],
                 y=ia_coords[:, 0],
-                name="ImageArea Coordinates",
-                line={"dash": "dash"},
+                name="ImageArea",
+                legendgroup="ImageArea",
+                showlegend=False,
+                line={"dash": "dash", "color": color},
             ),
             row=1,
             col=2,
         )
+
+        # Plot segments
+        for segment in grid["SegmentList"].get("Segment", []):
+            color = next(colors)
+            name = segment["Identifier"]
+            seg_indices = np.array(
+                segment["SegmentPolygon"].tolist() + [segment["SegmentPolygon"][0]]
+            )
+            seg_coords = (seg_indices + grid_first - iarp_ls) * grid_spacing
+            fig.add_trace(
+                go.Scatter(
+                    x=seg_indices[:, 1],
+                    y=seg_indices[:, 0],
+                    name=name,
+                    legendgroup=name,
+                    line={"dash": "dot", "color": color},
+                ),
+                row=1,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=seg_coords[:, 1],
+                    y=seg_coords[:, 0],
+                    name=name,
+                    legendgroup=name,
+                    showlegend=False,
+                    line={"dash": "dot", "color": color},
+                ),
+                row=1,
+                col=2,
+            )
         return [fig]
 
     def _plot_support_array(self, sa_id):
@@ -873,7 +910,7 @@ class Plotter(_plot_metadata.Plotter):
                 get_valid_target_dwell(self.xml, chan_param_ew)
             )
 
-            approx_ref_time = calc_tref(pvps)
+            approx_ref_time = skcphd.compute_t_ref_from_pvps(pvps)
 
             time_from_ref_time = target_times[..., np.newaxis] - np.expand_dims(
                 approx_ref_time, (0, 1)
@@ -1193,26 +1230,12 @@ def get_valid_target_dwell(
         target_ia_coords, xmltree, chan_param_ew
     )
 
-    target_ecef_coords = iac_to_ecef(xmltree, target_ia_coords)
+    target_ecef_coords = skcphd.iac_to_ecf(xmltree, target_ia_coords)
 
     target_times = cod_times[..., np.newaxis] + dwell_times[
         ..., np.newaxis
     ] * np.linspace(-0.5, 0.5, dwell_grid_size)
     return target_times, target_ecef_coords, target_ia_coords
-
-
-def iac_to_ecef(xmltree, ia_coords):
-    """Converts ImageAreaCoordinates to ECF"""
-    # TODO: should be in SARkit
-    sc_ew = skcphd.ElementWrapper(xmltree.find("{*}SceneCoordinates"))
-    if "Planar" in sc_ew["ReferenceSurface"]:
-        iarp = sc_ew["IARP"]["ECF"]
-        uiax = sc_ew["ReferenceSurface"]["Planar"]["uIAX"]
-        uiay = sc_ew["ReferenceSurface"]["Planar"]["uIAY"]
-        # TODO: in SARkit, should have a conditional uiaz
-        return iarp + uiax * ia_coords[..., :1] + uiay * ia_coords[..., 1:]
-    else:
-        raise NotImplementedError("HAE surface not supported")
 
 
 def geom_to_dtoa_and_dtoa_rate(
@@ -1238,15 +1261,6 @@ def geom_to_dtoa_and_dtoa_rate(
     tx_toa, tx_toa_rate = one_dir_rel(tx_apc_pos, tx_apc_vel)
     rcv_toa, rcv_toa_rate = one_dir_rel(rcv_apc_pos, rcv_apc_vel)
     return tx_toa + rcv_toa, tx_toa_rate + rcv_toa_rate
-
-
-def calc_tref(pvps):
-    # TODO: should be in SARkit
-    r_xmt_srp = np.linalg.norm(pvps["TxPos"] - pvps["SRPPos"], axis=-1)
-    r_rcv_srp = np.linalg.norm(pvps["RcvPos"] - pvps["SRPPos"], axis=-1)
-    return pvps["TxTime"] + (r_xmt_srp / (r_xmt_srp + r_rcv_srp)) * (
-        pvps["RcvTime"] - pvps["TxTime"]
-    )
 
 
 def get_onesided_info(
@@ -1309,7 +1323,7 @@ def get_onesided_info(
 def get_antenna_info(xmltree, chan_param_ew, chan_pvps):
     """Return the direction cosines for a set of targets spanning the scene polygon over times spanning their dwell."""
     target_times, target_ecef_coords, _ = get_valid_target_dwell(xmltree, chan_param_ew)
-    tref = calc_tref(chan_pvps)
+    tref = skcphd.compute_t_ref_from_pvps(chan_pvps)
     retval = []
     for side in ("Tx", "Rcv"):
         this_info = get_onesided_info(
