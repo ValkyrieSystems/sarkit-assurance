@@ -841,9 +841,12 @@ class Plotter(_plot_metadata.Plotter):
         )
         return [ipp_fig, prf_fig]
 
-    def plot_scp(self):
-        """Plot the location of the SCP on a map"""
+    def plot_geodata(self):
+        """Plot GeoData elements on a map"""
         scp_lat, scp_lon, _ = self.ew["GeoData"]["SCP"]["LLH"]
+
+        icps = self.ew["GeoData"]["ImageCorners"]
+        icps = np.concatenate([icps, icps[:1]], axis=0)  # close polygon
 
         fig = go.Figure(go.Scattergeo())
         fig.update_geos(
@@ -854,10 +857,9 @@ class Plotter(_plot_metadata.Plotter):
             projection={"rotation": {"lat": scp_lat, "lon": scp_lon}, "scale": 2},
         )
         fig.update_layout(
-            height=300,
-            width=300,
-            margin={"r": 0, "t": 0, "l": 0, "b": 0},
-            meta="scp",
+            height=self.nominal_height,
+            width=self.nominal_width,
+            meta="geodata",
         )
         fig.add_trace(
             go.Scattergeo(
@@ -865,8 +867,36 @@ class Plotter(_plot_metadata.Plotter):
                 lat=[scp_lat],
                 mode="markers",
                 marker={"size": 10, "symbol": "diamond"},
+                text="SCP",
+                name="SCP",
             )
         )
+        fig.add_trace(
+            go.Scattergeo(
+                lon=icps[:, 1],
+                lat=icps[:, 0],
+                mode="lines+markers",
+                text=[f"ICP({x % 4 + 1})" for x in range(5)],
+                name="ICPs",
+            )
+        )
+        if "ValidData" in self.ew["GeoData"]:
+            validdata = self.ew["GeoData"]["ValidData"]
+            validdata = np.concatenate(
+                [validdata, validdata[:1]], axis=0
+            )  # close polygon
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=validdata[:, 1],
+                    lat=validdata[:, 0],
+                    mode="lines+markers",
+                    text=[
+                        f"VD({(x % validdata.shape[0] - 1) + 1})"
+                        for x in range(validdata.shape[0])
+                    ],
+                    name="ValidData",
+                )
+            )
         return [fig]
 
     def plot_weights(self):
