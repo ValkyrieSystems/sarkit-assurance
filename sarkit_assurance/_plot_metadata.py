@@ -197,7 +197,7 @@ class Plotter:
         html_txt_segments.append(toc)
         html_txt_segments.extend(divs_by_id.values())
         html_txt_segments.append("</body>\n</html>")
-        output_html.write_text("".join(html_txt_segments))
+        output_html.write_text("".join(html_txt_segments), encoding="utf-8")
 
         if auto_open:
             webbrowser.open(f"file://{output_html.resolve()}")
