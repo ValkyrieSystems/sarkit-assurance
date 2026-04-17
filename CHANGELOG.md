@@ -10,5 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `cphd_plot_metadata`
 - `cphd_thumb`
+- `sicd_chip_to_html`
 - `sicd_plot_metadata`
 - `sidd_thumb`
