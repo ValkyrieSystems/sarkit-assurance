@@ -13,7 +13,7 @@ import sarkit.sicd as sksicd
 import sarkit.wgs84
 import shapely.geometry as shg
 
-from sarkit_assurance import _remap
+from sarkit_assurance import _remap, sicd_plot_metadata
 
 try:
     from smart_open import open
@@ -27,20 +27,6 @@ def _scp_centered_coord_to_global_index(ew, scp_centered_coord):
     spacing = np.array([ew["Grid"]["Row"]["SS"], ew["Grid"]["Col"]["SS"]])
     origin = ew["ImageData"]["SCPPixel"]
     return scp_centered_coord / spacing + origin
-
-
-def _get_valid_index_data_polygon(ew):
-    valid_data = ew["ImageData"].get("ValidData", None)
-
-    if valid_data is None:
-        valid_data = [
-            (0, 0),
-            (0, ew["ImageData"]["NumCols"] - 1),
-            (ew["ImageData"]["NumRows"], ew["ImageData"]["NumCols"] - 1),
-            (ew["ImageData"]["NumRows"], 0),
-        ]
-
-    return shg.Polygon(valid_data)
 
 
 def create_sicd_chip_plot(reader: sksicd.NitfReader, feature: dict):
@@ -125,7 +111,7 @@ def create_sicd_chip_plot(reader: sksicd.NitfReader, feature: dict):
     fig.update_yaxes(title_text="distance from expected (m)", autorange="reversed")
 
     title_text = f"pixel row/col: {sub_index[0]:0.2f} {sub_index[1]:0.2f}"
-    valid_data_polygon = _get_valid_index_data_polygon(subew)
+    valid_data_polygon = sicd_plot_metadata.valid_data_polygon(subew)
     if not valid_data_polygon.contains(shg.Point(sub_index)):
         title_text += " [outside ValidData]"
 
