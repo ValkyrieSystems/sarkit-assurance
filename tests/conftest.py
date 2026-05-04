@@ -5,6 +5,7 @@ import lxml.etree
 import numpy as np
 import pytest
 import sarkit.cphd as skcphd
+import sarkit.crsd as skcrsd
 import sarkit.sicd as sksicd
 import sarkit.sidd as sksidd
 import scipy.constants
@@ -13,7 +14,12 @@ from PIL import Image
 DATAPATH = pathlib.Path(__file__).parents[1] / "data"
 
 good_cphd_xml_path = DATAPATH / "example-cphd-1.1.0.xml"
+good_crsd_xml_path = DATAPATH / "example-crsd-1.0.xml"
 good_sicd_xml_path = DATAPATH / "example-sicd-1.4.0.xml"
+
+
+def unit(x):
+    return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
 
 def _random_array(shape, dtype, reshape=True):
@@ -97,9 +103,6 @@ def make_cphd(tmp_path_factory, sig_format):
 
     srp = xmlhelp.load(".//{*}SRP/{*}ECF")
     pvps["SRPPos"] = srp
-
-    def unit(x):
-        return x / np.linalg.norm(x, axis=-1, keepdims=True)
 
     tx_acz = unit(srp - pvps["TxPos"])
     rcv_acz = unit(srp - pvps["RcvPos"])
@@ -357,3 +360,128 @@ def example_sicd(tmp_path_factory):
     with open(tmp_sicd, "wb") as f, sksicd.NitfWriter(f, sicd_meta) as w:
         w.write_image(_random_array((nrows, ncols), dtype))
     yield tmp_sicd
+
+
+@pytest.fixture(scope="session")
+def example_crsdsar(tmp_path_factory):
+    crsd_etree = lxml.etree.parse(good_crsd_xml_path)
+    xmlhelp = skcrsd.XmlHelper(crsd_etree)
+
+    pvp_dtype = skcrsd.get_pvp_dtype(crsd_etree)
+
+    assert crsd_etree.findtext("./{*}Data/{*}Receive/{*}SignalArrayFormat") == "CI2"
+    signal_dtype = skcrsd.binary_format_string_to_dtype(
+        crsd_etree.findtext("./{*}Data/{*}Receive/{*}SignalArrayFormat")
+    )
+    rng = np.random.default_rng(123456)
+    num_pulses = xmlhelp.load("./{*}Data/{*}Transmit/{*}TxSequence/{*}NumPulses")
+    num_vectors = xmlhelp.load("./{*}Data/{*}Receive/{*}Channel/{*}NumVectors")
+    num_samples = xmlhelp.load("./{*}Data/{*}Receive/{*}Channel/{*}NumSamples")
+    signal = (
+        rng.integers(-128, 127, (num_vectors, num_samples, 2), dtype=np.int8)
+        .view(signal_dtype)
+        .squeeze()
+    )
+
+    pvps = np.zeros((num_vectors), dtype=pvp_dtype)
+    ppps = np.zeros(num_pulses, dtype=skcrsd.get_ppp_dtype(crsd_etree))
+    tx_ref_time = xmlhelp.load("{*}ReferenceGeometry/{*}TxParameters/{*}Time")
+    txtime = np.interp(
+        np.arange(num_pulses),
+        [
+            0,
+            xmlhelp.load(".//{*}RefVectorPulseIndex"),
+            num_pulses - 1,
+        ],
+        [
+            xmlhelp.load(".//{*}TxTime1"),
+            tx_ref_time,
+            xmlhelp.load(".//{*}TxTime2"),
+        ],
+    )
+    ppps["TxTime"]["Int"] = np.floor(txtime)
+    ppps["TxTime"]["Frac"] = txtime % 1
+
+    txpos = xmlhelp.load("{*}ReferenceGeometry/{*}TxParameters/{*}APCPos")
+    txvel = xmlhelp.load("{*}ReferenceGeometry/{*}TxParameters/{*}APCVel")
+
+    tx_pos_poly = np.stack([(txpos - tx_ref_time * txvel), txvel])
+
+    fx1 = xmlhelp.load(".//{*}FxMin")
+    fx2 = xmlhelp.load(".//{*}FxMax")
+    tx_bw = xmlhelp.load(".//{*}FxBW")
+    ppps["FX1"][:] = fx1
+    ppps["FX2"][:] = fx2
+    ppps["TXmt"][:] = xmlhelp.load(".//{*}TXmtMin")
+    ppps["TxRadInt"][:] = xmlhelp.load(".//{*}TxRefRadIntensity")
+    ppps["FxRate"] = tx_bw / ppps["TXmt"]
+    ppps["FxFreq0"][:] = xmlhelp.load(".//{*}FxC")
+
+    ppps["TxPos"] = np.polynomial.polynomial.polyval(txtime, tx_pos_poly).T
+    ppps["TxPos"][xmlhelp.load(".//{*}RefVectorPulseIndex")] = txpos
+    ppps["TxVel"] = txvel
+
+    tx_refpt = xmlhelp.load(".//{*}TxRefPoint/{*}ECF")
+    tx_acz = unit(tx_refpt - ppps["TxPos"])
+    tx_acx = unit(np.cross(ppps["TxVel"], tx_acz))
+    tx_acy = unit(np.cross(tx_acz, tx_acx))
+    ppps["TxACX"] = tx_acx
+    ppps["TxACY"] = tx_acy
+    ppps["TxEB"] = 0
+
+    rcvstart = np.interp(
+        np.arange(num_vectors),
+        [
+            0,
+            xmlhelp.load(".//{*}RefVectorIndex"),
+            num_vectors - 1,
+        ],
+        [
+            xmlhelp.load(".//{*}RcvStartTime1"),
+            xmlhelp.load("./{*}ReferenceGeometry/{*}RcvParameters/{*}Time"),
+            xmlhelp.load(".//{*}RcvStartTime2"),
+        ],
+    )
+    fs = xmlhelp.load("{*}Channel/{*}Parameters/{*}Fs")
+    rcvstart = np.round((rcvstart - rcvstart[0]) * fs) / fs + rcvstart[0]
+    pvps["RcvStart"]["Int"] = np.floor(rcvstart)
+    pvps["RcvStart"]["Frac"] = rcvstart % 1
+
+    rcvpos = xmlhelp.load("{*}ReferenceGeometry/{*}RcvParameters/{*}APCPos")
+    rcvvel = xmlhelp.load("{*}ReferenceGeometry/{*}RcvParameters/{*}APCVel")
+    rcv_ref_time = xmlhelp.load("{*}ReferenceGeometry/{*}RcvParameters/{*}Time")
+
+    rcv_pos_poly = np.stack([(rcvpos - rcv_ref_time * rcvvel), rcvvel])
+    pvps["RcvPos"] = np.polynomial.polynomial.polyval(rcvstart, rcv_pos_poly).T
+    pvps["RcvPos"][xmlhelp.load(".//{*}RefVectorIndex")] = rcvpos
+    pvps["RcvVel"] = rcvvel
+    pvps["SIGNAL"] = 1
+    pvps["RefFreq"] = xmlhelp.load("{*}Channel/{*}Parameters/{*}F0Ref")
+    pvps["TxPulseIndex"] = np.arange(pvps.size)
+    pvps["FRCV1"] = xmlhelp.load(".//{*}FrcvMin")
+    pvps["FRCV2"] = xmlhelp.load(".//{*}FrcvMax")
+    pvps["AmpSF"] = 1.0
+    pvps["DFIC0"][1] = -10
+    pvps["FICRate"][1] = 10
+
+    rcv_refpt = xmlhelp.load(".//{*}RcvRefPoint/{*}ECF")
+    rcv_acz = unit(rcv_refpt - pvps["RcvPos"])
+    rcv_acx = unit(np.cross(pvps["RcvVel"], rcv_acz))
+    rcv_acy = unit(np.cross(rcv_acz, rcv_acx))
+    pvps["RcvACX"] = rcv_acx
+    pvps["RcvACY"] = rcv_acy
+    pvps["RcvEB"] = 0
+
+    tmp_crsd = (
+        tmp_path_factory.mktemp("data") / good_crsd_xml_path.with_suffix(".crsd").name
+    )
+    sequence_id = crsd_etree.findtext("{*}TxSequence/{*}Parameters/{*}Identifier")
+    channel_id = crsd_etree.findtext("{*}Channel/{*}Parameters/{*}Identifier")
+    new_meta = skcrsd.Metadata(
+        xmltree=crsd_etree,
+    )
+    with open(tmp_crsd, "wb") as f, skcrsd.Writer(f, new_meta) as cw:
+        cw.write_ppp(sequence_id, ppps)
+        cw.write_pvp(channel_id, pvps)
+        cw.write_signal(channel_id, signal)
+    yield tmp_crsd

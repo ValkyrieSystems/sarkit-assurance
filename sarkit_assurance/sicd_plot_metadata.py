@@ -17,16 +17,12 @@ import shapely.affinity
 import shapely.geometry
 from scipy import constants
 
-from . import _plot_metadata
+from . import _plot_metadata, utils
 
 try:
     from smart_open import open
 except ImportError:
     pass
-
-
-def unit(v):
-    return v / np.linalg.norm(v, axis=-1, keepdims=True)
 
 
 def _scale_to_byte(data):
@@ -305,7 +301,7 @@ class Plotter(_plot_metadata.Plotter):
             scaled_pixel_boundary.exterior.interpolate(d, normalized=True).coords[0]
             for d in np.linspace(0, 1, 8, endpoint=False)
         ]
-        vertex_directions = unit(
+        vertex_directions = utils.unit(
             np.array(scaled_vertices) - scaled_pixel_boundary.centroid.coords[0]
         )
         top_leftish_vertex = np.argmax(np.dot(vertex_directions, [-1, -1]))

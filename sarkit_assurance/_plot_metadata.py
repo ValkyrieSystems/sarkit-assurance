@@ -5,6 +5,7 @@ import itertools
 import pathlib
 import webbrowser
 
+import plotly.graph_objects as go
 import plotly.offline.offline
 
 from . import names
@@ -54,6 +55,8 @@ class Plotter:
 
     def __init__(self, title):
         self.title = title
+        self.nominal_width = 1280
+        self.nominal_height = 800
         self.plotters = [
             attr
             for name in dir(self)
@@ -68,6 +71,16 @@ class Plotter:
     @staticmethod
     def get_plotly_js():
         return f'<script type="text/javascript">{plotly.offline.offline.get_plotlyjs()}</script>'
+
+    def new_fig(self, title, meta):
+        return go.Figure(
+            layout={
+                "title_text": self.format_title(title),
+                "height": self.nominal_height,
+                "width": self.nominal_width,
+                "meta": meta,
+            }
+        )
 
     def format_title(self, raw):
         return f"<b>{html.escape(raw)}</b> - <i>{self.title}</i><br>"
