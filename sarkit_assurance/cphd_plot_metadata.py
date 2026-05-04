@@ -18,7 +18,7 @@ import scipy.constants
 import shapely
 import shapely.geometry as shg
 
-from . import _plot_metadata
+from . import _plot_metadata, utils
 
 try:
     from smart_open import open
@@ -216,7 +216,7 @@ class Plotter(_plot_metadata.Plotter):
         )
 
         im_rect, im_poly = _make_image_area(
-            self.xml.find("{*}SceneCoordinates/{*}ImageArea"),
+            self.ew["SceneCoordinates"]["ImageArea"],
             name="Scene",
             colors=next(color_set),
         )
@@ -243,12 +243,10 @@ class Plotter(_plot_metadata.Plotter):
             fig.add_trace(im_poly)
 
         if (
-            extended_area_element := self.xml.find(
-                "{*}SceneCoordinates/{*}ExtendedArea"
-            )
+            extended_area_ew := self.ew["SceneCoordinates"].get("ExtendedArea", None)
         ) is not None:
             ext_rect, ext_poly = _make_image_area(
-                extended_area_element, name="Extended", colors=next(color_set)
+                extended_area_ew, name="Extended", colors=next(color_set)
             )
             fig.add_trace(ext_rect)
             if ext_poly is not None:
@@ -256,16 +254,17 @@ class Plotter(_plot_metadata.Plotter):
 
         channel_colors = dict(zip(self.channels, color_set))
 
-        for channel_ia_element in self.xml.findall(
-            "{*}Channel/{*}Parameters/{*}ImageArea"
-        ):
-            chan_id = channel_ia_element.getparent().findtext("{*}Identifier")
+        for chan_param_ew in self.ew["Channel"]["Parameters"]:
+            if "ImageArea" not in chan_param_ew:
+                continue
+            chan_ia_ew = chan_param_ew["ImageArea"]
+            chan_id = chan_param_ew["Identifier"]
             if chan_id in self.channels:
                 fig.add_traces(
                     [
                         t
                         for t in _make_image_area(
-                            channel_ia_element,
+                            chan_ia_ew,
                             name=f"Channel: {chan_id}",
                             colors=channel_colors[chan_id],
                         )
@@ -625,7 +624,7 @@ class Plotter(_plot_metadata.Plotter):
         # Plot ImageArea
         color = next(colors)
         im_rect, im_poly = _make_image_area(
-            self.xml.find("{*}SceneCoordinates/{*}ImageArea"),
+            self.ew["SceneCoordinates"]["ImageArea"],
             name="Scene",
         )
         if im_poly is not None:
@@ -943,7 +942,7 @@ class Plotter(_plot_metadata.Plotter):
             image_area_traces = [
                 t
                 for t in _make_image_area(
-                    self.xml.find("{*}SceneCoordinates/{*}ImageArea"),
+                    self.ew["SceneCoordinates"]["ImageArea"],
                     name="Scene",
                     colors=["DimGray", "Gray"],
                 )
@@ -1046,8 +1045,7 @@ class Plotter(_plot_metadata.Plotter):
         return figs
 
 
-def _make_image_area(area_element, name=None, colors=None):
-    area_ew = skcphd.ElementWrapper(area_element)
+def _make_image_area(area_ew, name=None, colors=None):
     x1, y1 = area_ew["X1Y1"]
     x2, y2 = area_ew["X2Y2"]
     # swap x/y in trace so x=rows/vertical, y=cols/horizontal
@@ -1176,28 +1174,6 @@ def get_valid_area(xmltree, chan_param_ew):
     return ia_poly
 
 
-def get_valid_targets(xmltree, chan_param_ew, grid_size=11):
-    ia_poly = get_valid_area(xmltree, chan_param_ew)
-
-    # grid of points and intersect
-    bounds = np.asarray(ia_poly.bounds).reshape(2, 2)  # [[xmin, ymin], [xmax, ymax]]
-    mesh = np.stack(
-        np.meshgrid(
-            np.linspace(bounds[0, 0], bounds[1, 0], grid_size),
-            np.linspace(bounds[0, 1], bounds[1, 1], grid_size),
-        ),
-        axis=-1,
-    )
-    coords = shg.MultiPoint(
-        np.concatenate(
-            [mesh.reshape(-1, 2), np.asarray(ia_poly.exterior.coords)[:-1, :]],
-            axis=0,
-        )
-    )
-
-    return shapely.get_coordinates(ia_poly.intersection(coords))
-
-
 def get_target_dwelltimes(target_ia_coords, xmltree, chan_param_ew):
     dwell_id = chan_param_ew["DwellTimes"]["DwellId"]
     cod_id = chan_param_ew["DwellTimes"]["CODId"]
@@ -1225,7 +1201,8 @@ def get_valid_target_dwell(
     xmltree, chan_param_ew, target_grid_size=11, dwell_grid_size=11
 ):
     """Return a set of targets spanning a channel's image area along with times spanning their dwell"""
-    target_ia_coords = get_valid_targets(xmltree, chan_param_ew, target_grid_size)
+    ia_poly = get_valid_area(xmltree, chan_param_ew)
+    target_ia_coords = utils.get_samples_in_poly(ia_poly, grid_size=target_grid_size)
     cod_times, dwell_times = get_target_dwelltimes(
         target_ia_coords, xmltree, chan_param_ew
     )
@@ -1294,14 +1271,11 @@ def get_onesided_info(
     acx = np.moveaxis(npp.polyval(t, acf_ew["XAxisPoly"]), 0, -1)
     acy = np.moveaxis(npp.polyval(t, acf_ew["YAxisPoly"]), 0, -1)
 
-    def unit(v):
-        return v / npl.norm(v, axis=-1, keepdims=True)
-
-    uacz = unit(np.cross(acx, acy))
-    u = unit(unit(acx) + unit(acy))
+    uacz = utils.unit(np.cross(acx, acy))
+    u = utils.unit(utils.unit(acx) + utils.unit(acy))
     v = np.cross(uacz, u)
-    acx_norm = unit(u - v)
-    acy_norm = unit(u + v)
+    acx_norm = utils.unit(u - v)
+    acy_norm = utils.unit(u + v)
 
     dcx = np.vecdot(ulos, acx_norm)
     dcy = np.vecdot(ulos, acy_norm)
