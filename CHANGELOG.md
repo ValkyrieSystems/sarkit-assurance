@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `cphd_plot_metadata.Plotter.plot_image_grid` for Segments without a SegmentPolygon
+
 
 ## [0.1.0] - 2026-04-16
 
