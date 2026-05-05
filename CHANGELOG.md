@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.1.1] - 2026-05-05
+
+### Fixed
+- `cphd_plot_metadata.Plotter.plot_image_grid` for Segments without a SegmentPolygon
+
+
+## [0.1.0] - 2026-04-16
+
 ### Added
 - `cphd_plot_metadata`
 - `cphd_thumb`
 - `sicd_chip_to_html`
 - `sicd_plot_metadata`
 - `sidd_thumb`
+
+[unreleased]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/ValkyrieSystems/sarkit-assurance/releases/tag/v0.1.0
