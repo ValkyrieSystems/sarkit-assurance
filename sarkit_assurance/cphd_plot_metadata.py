@@ -661,9 +661,19 @@ class Plotter(_plot_metadata.Plotter):
         for segment in grid["SegmentList"].get("Segment", []):
             color = next(colors)
             name = segment["Identifier"]
-            seg_indices = np.array(
-                segment["SegmentPolygon"].tolist() + [segment["SegmentPolygon"][0]]
-            )
+            seg_poly = segment.get("SegmentPolygon", None)
+            if seg_poly is not None:
+                seg_indices = np.array(seg_poly.tolist() + [seg_poly[0]])
+            else:
+                seg_indices = np.array(
+                    [
+                        [segment["StartLine"], segment["StartSample"]],
+                        [segment["StartLine"], segment["EndSample"]],
+                        [segment["EndLine"], segment["EndSample"]],
+                        [segment["EndLine"], segment["StartSample"]],
+                        [segment["StartLine"], segment["StartSample"]],
+                    ]
+                )
             seg_coords = (seg_indices + grid_first - iarp_ls) * grid_spacing
             fig.add_trace(
                 go.Scatter(

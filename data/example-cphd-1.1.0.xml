@@ -147,6 +147,62 @@
         <FirstSample>0</FirstSample>
         <NumSamples>5003</NumSamples>
       </IAYExtent>
+      <SegmentList>
+        <NumSegments>3</NumSegments>
+        <Segment>
+          <Identifier>SegA</Identifier>
+          <StartLine>0</StartLine>
+          <StartSample>0</StartSample>
+          <EndLine>3247</EndLine>
+          <EndSample>5002</EndSample>
+          <SegmentPolygon size="4">
+            <SV index="1">
+              <Line>0.0</Line>
+              <Sample>5002.0</Sample>
+            </SV>
+            <SV index="2">
+              <Line>3247.0</Line>
+              <Sample>5002.0</Sample>
+            </SV>
+            <SV index="3">
+              <Line>3247.0</Line>
+              <Sample>0.0</Sample>
+            </SV>
+            <SV index="4">
+              <Line>0.0</Line>
+              <Sample>0.0</Sample>
+            </SV>
+          </SegmentPolygon>
+        </Segment>
+        <Segment>
+          <Identifier>SegB</Identifier>
+          <StartLine>3248</StartLine>
+          <StartSample>0</StartSample>
+          <EndLine>6496</EndLine>
+          <EndSample>5002</EndSample>
+          <SegmentPolygon size="3">
+            <SV index="1">
+              <Line>3248.0</Line>
+              <Sample>5002.0</Sample>
+            </SV>
+            <SV index="2">
+              <Line>6496.0</Line>
+              <Sample>5002.0</Sample>
+            </SV>
+            <SV index="3">
+              <Line>4872.0</Line>
+              <Sample>0.0</Sample>
+            </SV>
+          </SegmentPolygon>
+        </Segment>
+        <Segment>
+          <Identifier>SegC</Identifier>
+          <StartLine>6497</StartLine>
+          <StartSample>0</StartSample>
+          <EndLine>9742</EndLine>
+          <EndSample>5002</EndSample>
+        </Segment>
+      </SegmentList>
     </ImageGrid>
   </SceneCoordinates>
   <Data>
