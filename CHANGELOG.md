@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `sicd_chip_to_html`
+
 
 ## [0.1.1] - 2026-05-05
 
@@ -19,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `cphd_plot_metadata`
 - `cphd_thumb`
-- `sicd_chip_to_html`
 - `sicd_plot_metadata`
 - `sidd_thumb`
 

@@ -126,11 +126,13 @@ def write_html_file(
 ) -> None:
     """Create an HTML file containing plots
 
-    Properties
+    Parameters
     ----------
     html_filename : str or path-like
     plots : iterable
         Tuples of (plotly figure, GeoJSON feature dictionary)
+    extra_metadata : dict
+        extra metadata to put at top of the html
     """
     style = """
         <style>
