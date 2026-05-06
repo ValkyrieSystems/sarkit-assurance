@@ -3,10 +3,12 @@ import pathlib
 
 import lxml.etree
 import numpy as np
+import numpy.polynomial.polynomial as npp
 import pytest
 import sarkit.cphd as skcphd
 import sarkit.sicd as sksicd
 import sarkit.sidd as sksidd
+import sarkit.wgs84
 import scipy.constants
 from PIL import Image
 
@@ -181,6 +183,19 @@ def multichan_cphd(tmp_path_factory):
     yield tmp_cphd
 
 
+def _polyfit2d(x, y, z, order1, order2):
+    """Fits 2d polynomials to data."""
+    fx = x.flatten()
+    fy = y.flatten()
+    fz = z.flatten()
+    if not fx.shape[0] == fy.shape[0] == fz.shape[0]:
+        raise ValueError("Expected x, y, z to have same leading dimension size")
+    vander = npp.polyvander2d(fx, fy, (order1, order2))
+    scales = np.sqrt(np.square(vander).sum(0))
+    coefs_flat = (np.linalg.lstsq(vander / scales, fz, rcond=-1)[0].T / scales).T
+    return coefs_flat.reshape(order1 + 1, order2 + 1)
+
+
 def _image(sidd_xmltree):
     xml_helper = sksidd.XmlHelper(sidd_xmltree)
     rows = xml_helper.load("./{*}Measurement/{*}PixelFootprint/{*}Row")
@@ -197,6 +212,27 @@ def multi_sidd(tmp_path_factory):
 
     # MONO8I
     basis_etree0 = lxml.etree.parse(sidd_xml)
+    sidd_ew = sksidd.ElementWrapper(basis_etree0.getroot())
+
+    ## Generate Polynomial Projection
+    pts = np.stack(
+        np.meshgrid(
+            np.linspace(0, sidd_ew["Measurement"]["PixelFootprint"][0], 11),
+            np.linspace(0, sidd_ew["Measurement"]["PixelFootprint"][1], 11),
+        ),
+        axis=-1,
+    )
+    llh = sarkit.wgs84.cartesian_to_geodetic(sksidd.pixel_to_ecef(basis_etree0, pts))
+    sidd_ew["Measurement"]["PolynomialProjection"] = {
+        "ReferencePoint": sidd_ew["Measurement"]["PlaneProjection"]["ReferencePoint"],
+        "RowColToLat": _polyfit2d(pts[..., 0], pts[..., 1], llh[..., 0], 5, 5),
+        "RowColToLon": _polyfit2d(pts[..., 0], pts[..., 1], llh[..., 1], 5, 5),
+        "RowColToAlt": _polyfit2d(pts[..., 0], pts[..., 1], llh[..., 2], 5, 5),
+        "LatLonToRow": _polyfit2d(llh[..., 0], llh[..., 1], pts[..., 0], 5, 5),
+        "LatLonToCol": _polyfit2d(llh[..., 0], llh[..., 1], pts[..., 1], 5, 5),
+    }
+    del sidd_ew["Measurement"]["PlaneProjection"]
+
     basis_array0 = np.asarray(_image(basis_etree0).convert(mode="L"))
     expected_img_modes.append("L")
 
