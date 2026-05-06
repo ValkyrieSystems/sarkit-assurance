@@ -17,7 +17,7 @@ import shapely.affinity
 import shapely.geometry
 from scipy import constants
 
-from . import _plot_metadata
+from . import _plot_metadata, _remap
 
 try:
     from smart_open import open
@@ -27,12 +27,6 @@ except ImportError:
 
 def unit(v):
     return v / np.linalg.norm(v, axis=-1, keepdims=True)
-
-
-def _scale_to_byte(data):
-    min_val = data.min()
-    max_val = data.max()
-    return ((data - min_val) * 256 / (max_val - min_val)).clip(0, 255).astype(np.uint8)
 
 
 def valid_data_polygon(sicd_ew):
@@ -353,7 +347,7 @@ class Plotter(_plot_metadata.Plotter):
             chip[: rchip.shape[0], : rchip.shape[1]] = rchip
             fchip = np.abs(np.fft.fftshift(np.fft.fft2(chip))) ** 2
             fchip = np.log(fchip.clip(fchip.max() / 1e5, None))
-            fchip = _scale_to_byte(fchip)
+            fchip = _remap._scale_to_byte(fchip)
             rc = dict(row=(index // 3 + 1), col=(index % 3 + 2))
             fig.add_heatmap(
                 z=fchip,
@@ -475,7 +469,7 @@ class Plotter(_plot_metadata.Plotter):
             tmp = self.sample_data.real**2 + self.sample_data.imag**2
             tmp = np.log10(tmp.clip(tmp.max() / 1e6, None))
             tmp = downsample_all_dims(tmp, self.downsample_factor)
-            tmp = _scale_to_byte(tmp)
+            tmp = _remap._scale_to_byte(tmp)
             downsamp_offset = (self.downsample_factor - 1) / 2.0
             fig.add_heatmap(
                 z=tmp,
