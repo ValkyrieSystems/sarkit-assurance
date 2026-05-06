@@ -2,6 +2,7 @@ import argparse
 import html
 import json
 import logging
+import pathlib
 import sys
 
 import numpy as np
@@ -271,8 +272,7 @@ def write_html_file(html_filename, image_plot_dict, extra_metadata):
     htmllines.append("</body>")
     htmllines.append("</html>")
 
-    with open(html_filename, "w") as file:
-        file.write("\n".join(htmllines))
+    pathlib.Path(html_filename).write_text("\n".join(htmllines), encoding="utf=8")
 
 
 def _get_all_features(geojson):
