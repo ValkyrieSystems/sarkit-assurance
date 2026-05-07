@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `sicd_chip_to_html`
+- `sidd_chip_to_html`
 
 
 ## [0.1.1] - 2026-05-05
