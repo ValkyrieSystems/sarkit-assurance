@@ -13,6 +13,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.subplots as psp
 import sarkit.crsd as skcrsd
+import sarkit.wgs84
 import scipy.constants
 import shapely
 import shapely.geometry as shg
@@ -681,6 +682,93 @@ class Plotter(_plot_metadata.Plotter):
             ..., np.newaxis
         ] * np.linspace(-0.5, 0.5, dwell_grid_size)
         return target_times, target_ecef_coords, target_ia_coords
+
+    def plot_map(self):
+        """Plot some locations on a map"""
+        iarp_lat, iarp_lon, _ = self.ew["SceneCoordinates"]["IARP"]["LLH"]
+        iacps = self.ew["SceneCoordinates"]["ImageAreaCornerPoints"]
+        # repeat start to close polygon
+        iacps = np.concatenate([iacps, iacps[:1]], axis=0)
+
+        fig = go.Figure(go.Scattergeo())
+        fig.update_geos(
+            projection_type="orthographic",
+            showcountries=True,
+            lataxis_showgrid=True,
+            lonaxis_showgrid=True,
+            projection={"rotation": {"lat": iarp_lat, "lon": iarp_lon}, "scale": 1},
+        )
+        fig.update_layout(
+            height=700,
+            title_text=self.format_title("Map"),
+            meta="map",
+        )
+        fig.add_trace(
+            go.Scattergeo(
+                lon=[iarp_lon],
+                lat=[iarp_lat],
+                mode="markers",
+                marker={"size": 10, "symbol": "diamond"},
+                text="IARP",
+                name="IARP",
+            )
+        )
+        fig.add_trace(
+            go.Scattergeo(
+                lon=iacps[:, 1],
+                lat=iacps[:, 0],
+                mode="lines+markers",
+                text=[f"IACP({x % 4 + 1})" for x in range(5)],
+                name="IACPs",
+            )
+        )
+        refgeom_refpt_llh = sarkit.wgs84.cartesian_to_geodetic(
+            self.ew["ReferenceGeometry"]["RefPoint"]["ECF"]
+        )
+        fig.add_trace(
+            go.Scattergeo(
+                lon=[refgeom_refpt_llh[1]],
+                lat=[refgeom_refpt_llh[0]],
+                mode="markers",
+                text="ReferenceGeometry.RefPoint",
+                name="ReferenceGeometry.RefPoint",
+            )
+        )
+        tx_refpoints = [
+            self.ew["TxSequence"].find("Parameters", Identifier=txid)["TxRefPoint"][
+                "ECF"
+            ]
+            for txid in self.sequences
+        ]
+        if tx_refpoints:
+            tx_refpoints_llh = sarkit.wgs84.cartesian_to_geodetic(tx_refpoints)
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=tx_refpoints_llh[:, 1],
+                    lat=tx_refpoints_llh[:, 0],
+                    mode="markers",
+                    text=[names.sanitize_name(txid) for txid in self.sequences],
+                    name="TxRefPoint(s)",
+                    marker_symbol="triangle-down-open",
+                )
+            )
+        rcv_refpoints = [
+            self.ew["Channel"].find("Parameters", Identifier=chid)["RcvRefPoint"]["ECF"]
+            for chid in self.channels
+        ]
+        if rcv_refpoints:
+            rcv_refpoints_llh = sarkit.wgs84.cartesian_to_geodetic(rcv_refpoints)
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=rcv_refpoints_llh[:, 1],
+                    lat=rcv_refpoints_llh[:, 0],
+                    mode="markers",
+                    text=[names.sanitize_name(chid) for chid in self.channels],
+                    name="RcvRefPoint(s)",
+                    marker_symbol="triangle-up-open",
+                )
+            )
+        return [fig]
 
 
 def main(args=None):
