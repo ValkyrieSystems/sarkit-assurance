@@ -252,19 +252,21 @@ class Plotter(_plot_metadata.Plotter):
                 mode="lines",
                 fill="toself",
             )
+            nyquist_line1 = np.round((ref_pvp["FRCV1"] - ref_pvp["RefFreq"]) / rcv_fs)
+            nyquist_line2 = np.round((ref_pvp["FRCV2"] - ref_pvp["RefFreq"]) / rcv_fs)
+            nyquist_lines = np.arange(nyquist_line1, nyquist_line2 + 2) - 0.5
             fig.add_scatter(
-                x=[0, rcv_duration, rcv_duration, 0, 0],
-                y=[
-                    fic0 - rcv_fs / 2,
-                    fic_end - rcv_fs / 2,
-                    fic_end + rcv_fs / 2,
-                    fic0 + rcv_fs / 2,
-                    fic0 - rcv_fs / 2,
-                ],
+                x=[0, rcv_duration, np.nan] * nyquist_lines.size,
+                y=(
+                    nyquist_lines[:, np.newaxis] * rcv_fs
+                    + ref_pvp["RefFreq"]
+                    + [0, 0, 0]
+                ).flatten(),
                 name="Receive Nyquist",
                 legendgroup="rcv",
                 mode="lines",
                 line_dash="dot",
+                line_color="rgba(200, 16, 16, 0.25)",
             )
             fig.add_scatter(
                 x=[0, rcv_duration],
