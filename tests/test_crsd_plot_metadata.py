@@ -2,10 +2,12 @@ import subprocess
 import sys
 import uuid
 
+import pytest
 import sarkit.crsd as skcrsd
 
 import sarkit_assurance.crsd_plot_metadata
 import tests.utils
+from sarkit_assurance.crsd_plot_metadata import main
 
 
 def test_main(tmp_path, example_crsdsar):
@@ -84,6 +86,73 @@ def test_main_concatenate(tmp_path, example_crsdsar):
         ]
     )
     assert len(list(concat_dir.glob("*.html"))) == 1
+
+
+@pytest.mark.parametrize(
+    "chan_args, expected_channels",
+    [
+        (
+            [],
+            ["027_056723_IW1", "027_056723_IW2", "027_056722_IW3"],
+        ),
+        (
+            ["--ref-chan"],
+            ["027_056723_IW2"],
+        ),
+        (
+            ["--chan=027_056723_IW2"],
+            ["027_056723_IW2"],
+        ),
+        (
+            ["--chan", "027_056723_IW1", "027_056723_IW2", "027_056722_IW3"],
+            ["027_056723_IW1", "027_056723_IW2", "027_056722_IW3"],
+        ),
+    ],
+)
+def test_main_channel_args(tmp_path, multi_crsdsar, chan_args, expected_channels):
+    with multi_crsdsar.open("rb"):
+        assert not main(
+            [str(multi_crsdsar), str(tmp_path), "-q", "--prefix", ""] + chan_args
+        )
+
+    expected_channels_sanitized = set(
+        sarkit_assurance.names.sanitize_name(x) for x in expected_channels
+    )
+    assert all(
+        file.stem.removeprefix("ref_tf_").startswith(tuple(expected_channels_sanitized))
+        for file in tmp_path.glob("ref_tf_*.html")
+    )
+
+
+def test_main_bad_channel(tmp_path, multi_crsdsar):
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "sarkit_assurance.crsd_plot_metadata",
+                str(multi_crsdsar),
+                str(tmp_path),
+                "--chan",
+                "NOT_A_CHANNEL",
+            ]
+        )
+
+
+def test_main_bad_arg_list(tmp_path, multi_crsdsar):
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.check_call(
+            [
+                sys.executable,
+                "-m",
+                "sarkit_assurance.crsd_plot_metadata",
+                str(multi_crsdsar),
+                str(tmp_path),
+                "--ref-chan",
+                "--chan",
+                "NOT_A_CHANNEL",
+            ]
+        )
 
 
 def test_smart_open(tmp_path, example_crsdsar):
