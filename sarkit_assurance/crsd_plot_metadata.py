@@ -37,18 +37,41 @@ def from_intfrac(a):
 class Plotter(_plot_metadata.Plotter):
     """A CRSD metadata plotter class."""
 
-    def __init__(self, file, title):
+    def __init__(
+        self,
+        file,
+        title,
+        *,
+        channels=None,
+    ):
         with skcrsd.Reader(file) as r:
             self.xml = r.metadata.xmltree
-            self.channels = [
-                x.text
-                for x in self.xml.findall("{*}Channel/{*}Parameters/{*}Identifier")
-            ]
-            self.sequences = [
-                x.text
-                for x in self.xml.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
-            ]
             self.ew = skcrsd.ElementWrapper(self.xml.getroot())
+            all_channels = [
+                chan["Identifier"] for chan in self.ew["Channel"]["Parameters"]
+            ]
+            all_sequences = [
+                seq["Identifier"] for seq in self.ew["TxSequence"]["Parameters"]
+            ]
+
+            if not channels:
+                self.channels = all_channels
+                self.sequences = all_sequences
+            else:
+                if not set(channels) <= set(all_channels):
+                    raise ValueError(
+                        (
+                            f"Unrecognized channel(s): {set(channels) - set(all_channels)}; "
+                            f"Must be from: {all_channels}"
+                        )
+                    )
+                self.channels = channels
+                self.sequences = []
+                for chan in channels:
+                    param = self.ew["Channel"].find("Parameters", Identifier=chan)
+                    tx_id = param["SARImage"]["TxId"]
+                    self.sequences.append(all_sequences[all_sequences.index(tx_id)])
+
             self.pvps = {ch_id: r.read_pvps(ch_id) for ch_id in self.channels}
             self.ppps = {tx_id: r.read_ppps(tx_id) for tx_id in self.sequences}
             self.support_arrays = {
@@ -205,6 +228,7 @@ class Plotter(_plot_metadata.Plotter):
         if self.ew["TxSequence"]["TxWFType"] != "LFM":
             # not implemented yet
             return figs
+
         for ch_id in self.channels:
             chanparam_ew = self.ew["Channel"].find("Parameters", Identifier=ch_id)
             v_ch_ref = chanparam_ew["RefVectorIndex"]
@@ -803,12 +827,29 @@ def main(args=None):
         dest="auto_open",
         help="don't open plots after creation",
     )
+    channel_group = parser.add_mutually_exclusive_group()
+    channel_group.add_argument(
+        "--ref-chan", action="store_true", help="only use the reference channel's PVPs"
+    )
+    channel_group.add_argument(
+        "--chan",
+        action="extend",
+        nargs="+",
+        help="use the specified channels' PVPs (default: all)",
+    )
     config = parser.parse_args(args)
 
-    with open(config.crsd_file, "rb") as f:
+    with open(config.crsd_file, "rb") as f, skcrsd.Reader(f) as r:
+        if config.ref_chan:
+            channels = [r.metadata.xmltree.findtext("./{*}Channel/{*}RefChId")]
+        else:
+            channels = config.chan
+
+        f.seek(0)
         plotter = Plotter(
             f,
             html.escape(config.crsd_file),
+            channels=channels,
         )
     save_func = plotter.save_combined if config.concatenate else plotter.save_separate
     prefix = (
