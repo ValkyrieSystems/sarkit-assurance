@@ -877,17 +877,19 @@ class Plotter(_plot_metadata.Plotter):
                 if (fixed_v := np.unique(v, axis=0)).shape[0] == 1
             }
             if fixed_pvps:
-                figs[(channel, "Fixed PVPs")] = plot_fixed_pvp_table(fixed_pvps)
+                figs[(channel, "Fixed PVPs")] = _plot_metadata.plot_pvp_table(
+                    fixed_pvps
+                )
 
             for key, value in pvp_data.items():
                 if not self.include_fixed_pvps and key in fixed_pvps:
                     continue
                 if value.ndim == 1:
-                    fig = plot_one_dim(value)
+                    fig = _plot_metadata.plot_one_dim(value)
                 elif value.ndim == 2 and value.shape[1] == 2:
-                    fig = plot_two_dim(*value.T)
+                    fig = _plot_metadata.plot_two_dim(*value.T)
                 elif value.ndim == 2 and value.shape[1] == 3:
-                    fig = plot_three_dim(*value.T)
+                    fig = _plot_metadata.plot_three_dim(*value.T)
                 figs[(channel, key)] = fig
 
         for (chan, key), fig in figs.items():
@@ -1071,92 +1073,6 @@ def _make_image_area(area_ew, name=None, colors=None):
     else:
         poly = None
     return rect, poly
-
-
-def plot_one_dim(ydata):
-    """Plot a single parameter versus index
-
-    Args
-    ----
-    ydata: `numpy.ndarray`
-        The y-axis data values.
-
-    """
-    fig = go.Figure(
-        data=go.Scatter(x=np.arange(0, len(ydata)), y=ydata, mode="markers")
-    )
-    fig.update_layout(xaxis_title="Vector #")
-    return fig
-
-
-def plot_two_dim(xdata, ydata):
-    """Plot a 2D parametric curve
-
-    Args
-    ----
-    xdata, ydata: `numpy.ndarray`
-        The x-axis and y-axis data values.
-
-    """
-    fig = go.Figure(
-        data=go.Scatter(
-            x=xdata,
-            y=ydata,
-            mode="markers",
-            marker={
-                "size": 2,
-                "color": np.arange(xdata.size),
-                "colorbar": {
-                    "title": "Vector #",
-                },
-            },
-        )
-    )
-    return fig
-
-
-def plot_three_dim(xdata, ydata, zdata):
-    """Plot a 3D parametric curve
-
-    Args
-    ----
-    xdata, ydata, zdata: `numpy.ndarray`
-        The x-axis, y-axis, and z-axis data values.
-
-    """
-    return go.Figure(
-        data=[
-            go.Scatter3d(
-                x=xdata,
-                y=ydata,
-                z=zdata,
-                mode="markers",
-                marker={
-                    "size": 2,
-                    "color": np.arange(xdata.size),
-                    "colorbar": {
-                        "title": "Vector #",
-                    },
-                },
-            )
-        ]
-    )
-
-
-def plot_fixed_pvp_table(fixed_pvps):
-    """Create a table displaying PVPs whose values are fixed."""
-    align = ["left", "center"]
-    return go.Figure(
-        data=[
-            go.Table(
-                header={"values": ["Parameter", "Value"], "align": align},
-                cells={
-                    "values": [list(fixed_pvps.keys()), list(fixed_pvps.values())],
-                    "align": align,
-                },
-            )
-        ]
-    )
 
 
 def get_valid_area(xmltree, chan_param_ew):

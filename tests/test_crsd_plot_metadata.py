@@ -2,6 +2,7 @@ import subprocess
 import sys
 import uuid
 
+import numpy as np
 import pytest
 import sarkit.crsd as skcrsd
 
@@ -10,13 +11,23 @@ import tests.utils
 from sarkit_assurance.crsd_plot_metadata import main
 
 
-def test_main(tmp_path, example_crsdsar):
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "example_crsdsar",
+        "multi_crsdsar",
+        "multi_crsdrcv",
+        "multi_crsdtx",
+    ],
+)
+def test_main(tmp_path, fixture_name, request):
+    file = request.getfixturevalue(fixture_name)
     subprocess.check_call(
         [
             sys.executable,
             "-m",
             "sarkit_assurance.crsd_plot_metadata",
-            str(example_crsdsar),
+            str(file),
             "-q",
         ],
         cwd=tmp_path,
@@ -114,7 +125,6 @@ def test_main_channel_args(tmp_path, multi_crsdsar, chan_args, expected_channels
         assert not main(
             [str(multi_crsdsar), str(tmp_path), "-q", "--prefix", ""] + chan_args
         )
-
     expected_channels_sanitized = set(
         sarkit_assurance.names.sanitize_name(x) for x in expected_channels
     )
@@ -153,6 +163,37 @@ def test_main_bad_arg_list(tmp_path, multi_crsdsar):
                 "NOT_A_CHANNEL",
             ]
         )
+
+
+def test_main_plot_fixed(tmp_path, multi_crsdsar):
+    with open(multi_crsdsar, "rb") as f, skcrsd.Reader(f) as r:
+        pvps = r.read_pvps(r.metadata.xmltree.findtext(".//{*}RefChId"))
+    assert any(np.unique(pvps[name], axis=0).shape[0] == 1 for name in pvps.dtype.names)
+
+    no_fixed_dir = tmp_path / "no_fixed"
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "sarkit_assurance.crsd_plot_metadata",
+            str(multi_crsdsar),
+            str(no_fixed_dir),
+            "-q",
+        ]
+    )
+    fixed_dir = tmp_path / "fixed"
+    subprocess.check_call(
+        [
+            sys.executable,
+            "-m",
+            "sarkit_assurance.crsd_plot_metadata",
+            str(multi_crsdsar),
+            str(fixed_dir),
+            "-q",
+            "--plot-fixed",
+        ]
+    )
+    assert len(list(fixed_dir.glob("*.html"))) > len(list(no_fixed_dir.glob("*.html")))
 
 
 def test_smart_open(tmp_path, example_crsdsar):
