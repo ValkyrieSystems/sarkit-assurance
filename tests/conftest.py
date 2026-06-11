@@ -16,7 +16,7 @@ DATAPATH = pathlib.Path(__file__).parents[1] / "data"
 
 good_cphd_xml_path = DATAPATH / "example-cphd-1.1.0.xml"
 good_crsd_xml_path = DATAPATH / "example-crsd-1.0.xml"
-multi_crsd_xml_path = DATAPATH / "example-multi-crsd-1.0.xml"
+multi_crsdsar_xml_path = DATAPATH / "example-multi-crsdsar-1.0.xml"
 good_sicd_xml_path = DATAPATH / "example-sicd-1.4.0.xml"
 
 
@@ -39,6 +39,48 @@ def _random_array(shape, dtype, reshape=True):
 
     _zerofill(retval)
     return retval.reshape(shape) if reshape else retval
+
+
+def _remove(root, pattern):
+    if (elem := root.find(pattern)) is not None:
+        elem.getparent().remove(elem)
+    else:
+        print(f"Cannot find {pattern=}")
+
+
+def _replace_error(crsd_etree, sensor_type):
+    sar_error = crsd_etree.find("{*}ErrorParameters/{*}SARImage")
+    elem_ns = lxml.etree.QName(sar_error).namespace
+    retval = copy.deepcopy(sar_error.find("{*}Monostatic"))
+    retval.tag = f"{{{elem_ns}}}{sensor_type}Sensor"
+    sar_error.addnext(retval)
+    helper = skcrsd.XmlHelper(crsd_etree)
+    ndx = {"Tx": 0, "Rcv": 1}[sensor_type]
+    helper.set_elem(
+        retval.find(".//{*}TimeFreqCov"),
+        skcrsd.MtxType((3, 3)).parse_elem(retval.find(".//{*}TimeFreqCov"))[
+            [ndx, 2], :
+        ][:, [ndx, 2]],
+    )
+    time_decorr = copy.deepcopy(retval.find(f".//{{*}}{{{sensor_type}}}TimeDecorr"))
+    if time_decorr is not None:
+        time_decorr.tag = f"{{{elem_ns}}}TimeDecorr"
+        _remove(retval, "{*}TxTimeDecorr")
+        _remove(retval, "{*}RcvTimeDecorr")
+        retval.find(".//{*}ClockFreqDecorr").addprevious(time_decorr)
+    sar_error.getparent().remove(sar_error)
+
+
+def _repack_support_arrays(crsd_etree):
+    offset = 0
+    for array in crsd_etree.findall("{*}Data/{*}Support/{*}SupportArray"):
+        array.find("{*}ArrayByteOffset").text = str(offset)
+        offset += (
+            int(array.findtext("{*}NumRows"))
+            * int(array.findtext("{*}NumCols"))
+            * int(array.findtext("{*}BytesPerElement"))
+        )
+    return offset
 
 
 def make_cphd(tmp_path_factory, sig_format):
@@ -491,10 +533,9 @@ def example_crsdsar(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def multi_crsdsar(tmp_path_factory):
-    crsd_etree = lxml.etree.parse(multi_crsd_xml_path)
+    crsd_etree = lxml.etree.parse(multi_crsdsar_xml_path)
     root = crsd_etree.getroot()
     crsd_ew = skcrsd.ElementWrapper(root)
-
     pvp_dtype = skcrsd.get_pvp_dtype(crsd_etree)
     assert crsd_ew["Data"]["Receive"]["SignalArrayFormat"] == "CI2"
     signal_dtype = skcrsd.binary_format_string_to_dtype(
@@ -503,7 +544,6 @@ def multi_crsdsar(tmp_path_factory):
     rng = np.random.default_rng(123456)
 
     ref_ch_id = crsd_ew["Channel"]["RefChId"]
-    chan_param = crsd_ew["Channel"]["Parameters"]
     channel_ids = [x.text for x in root.findall(".//{*}ChId")]
     tx_ref_time = crsd_ew["ReferenceGeometry"]["TxParameters"]["Time"]
     txpos = crsd_ew["ReferenceGeometry"]["TxParameters"]["APCPos"]
@@ -516,12 +556,13 @@ def multi_crsdsar(tmp_path_factory):
     ant = crsd_ew["Antenna"]
 
     def compute_vh_pol(pos, acx, acy, ref_pt, ant_pol_ref, txrcv_pol_ref):
+        xr = 1 if txrcv_pol_ref.elem.tag.endswith("TxPolarization") else -1
         amph, ampv, phaseh, phasev = skcrsd.compute_h_v_pol_parameters(
             pos,
             acx,
             acy,
             ref_pt,
-            1,
+            xr,
             ant_pol_ref["AmpX"],
             ant_pol_ref["AmpY"],
             ant_pol_ref["PhaseX"],
@@ -534,7 +575,8 @@ def multi_crsdsar(tmp_path_factory):
 
     # Loop over channels
     tmp_crsd = (
-        tmp_path_factory.mktemp("data") / multi_crsd_xml_path.with_suffix(".crsd").name
+        tmp_path_factory.mktemp("data")
+        / multi_crsdsar_xml_path.with_suffix(".crsd").name
     )
     new_meta = skcrsd.Metadata(xmltree=crsd_etree)
     pxp_dict_list = []
@@ -561,7 +603,7 @@ def multi_crsdsar(tmp_path_factory):
         ppps["FX2"][:] = txseq_param["FxC"] + txseq_param["FxBW"] / 2
         ppps["TXmt"][:] = txseq_param["TXmtMin"]
         ppps["TxRadInt"][:] = txseq_param["TxRefRadIntensity"]
-        ppps["FxRate"][:] = 1e12
+        ppps["FxRate"][:] = txseq_param["FxBW"] / txseq_param["TXmtMin"]
         ppps["FxFreq0"][:] = txseq_param["FxC"]
         ppps["TxPos"] = npp.polyval(txtime, tx_pos_poly).T
         if ch_id == ref_ch_id:
@@ -656,4 +698,138 @@ def multi_crsdsar(tmp_path_factory):
                 .squeeze()
             )
             cw.write_signal(pxp_dict["chid"], signal)
+    yield tmp_crsd
+
+
+@pytest.fixture(scope="session")
+def multi_crsdtx(tmp_path_factory, multi_crsdsar):
+    with multi_crsdsar.open("rb") as f, skcrsd.Reader(f) as cr:
+        crsd_etree = cr.metadata.xmltree
+        crsd_ew = skcrsd.ElementWrapper(crsd_etree.getroot())
+        sequence_ids = [
+            param["Identifier"] for param in crsd_ew["TxSequence"]["Parameters"]
+        ]
+        ppp_dict_list = []
+        for seqid in sequence_ids:
+            ppp_dict_list.append(
+                {
+                    "txid": seqid,
+                    "ppps": cr.read_ppps(seqid),
+                }
+            )
+
+    crsd_etree.find(".//{*}RefPulseIndex").text = crsd_etree.find(
+        ".//{*}RefVectorPulseIndex"
+    ).text
+    ns = lxml.etree.QName(crsd_etree.getroot()).namespace
+    crsd_etree.getroot().tag = f"{{{ns}}}CRSDtx"
+    _remove(crsd_etree, "{*}SARInfo")
+    _remove(crsd_etree, "{*}ReceiveInfo")
+    _remove(crsd_etree, "{*}Global/{*}Receive")
+    _remove(crsd_etree, "{*}SceneCoordinates/{*}ExtendedArea")
+    _remove(crsd_etree, "{*}SceneCoordinates/{*}ImageGrid")
+    _remove(crsd_etree, "{*}Data/{*}Receive")
+    _remove(crsd_etree, "{*}Channel")
+    _remove(crsd_etree, "{*}ReferenceGeometry/{*}SARImage")
+    _remove(crsd_etree, "{*}ReferenceGeometry/{*}RcvParameters")
+    _remove(crsd_etree, "{*}DwellPolynomials")
+    _remove(crsd_etree, "{*}PVP")
+    _replace_error(crsd_etree, "Tx")
+    tmp_crsd = (
+        tmp_path_factory.mktemp("data") / good_crsd_xml_path.with_suffix(".crsd").name
+    )
+
+    new_meta = skcrsd.Metadata(
+        xmltree=crsd_etree,
+    )
+    with open(tmp_crsd, "wb") as f, skcrsd.Writer(f, new_meta) as cw:
+        for ppp_dict in ppp_dict_list:
+            cw.write_ppp(ppp_dict["txid"], ppp_dict["ppps"])
+    yield tmp_crsd
+
+
+@pytest.fixture(scope="session")
+def multi_crsdrcv(tmp_path_factory, multi_crsdsar):
+    with multi_crsdsar.open("rb") as f, skcrsd.Reader(f) as cr:
+        crsd_etree = cr.metadata.xmltree
+        crsd_ew = skcrsd.ElementWrapper(crsd_etree.getroot())
+        channel_ids = [
+            param["Identifier"] for param in crsd_ew["Channel"]["Parameters"]
+        ]
+        pvps_sig_dict_list = []
+        for chan_id in channel_ids:
+            pvps_sig_dict_list.append(
+                {
+                    "chan_id": chan_id,
+                    "pvps": cr.read_pvps(chan_id),
+                    "signal": cr.read_signal(chan_id),
+                }
+            )
+    ns = lxml.etree.QName(crsd_etree.getroot()).namespace
+    crsd_etree.getroot().tag = f"{{{ns}}}CRSDrcv"
+    _remove(crsd_etree, "{*}SARInfo")
+    _remove(crsd_etree, "{*}TransmitInfo")
+    _remove(crsd_etree, "{*}Global/{*}Transmit")
+    _remove(crsd_etree, "{*}Data/{*}Transmit")
+    _remove(crsd_etree, "{*}TxSequence")
+    _remove(crsd_etree, "{*}ReferenceGeometry/{*}SARImage")
+    _remove(crsd_etree, "{*}ReferenceGeometry/{*}TxParameters")
+    _remove(crsd_etree, "{*}DwellPolynomials")
+    for chan_param in crsd_etree.findall("{*}Channel/{*}Parameters"):
+        chan_param.remove(chan_param.find("{*}SARImage"))
+
+    fx_ids = [
+        x.text
+        for x in crsd_etree.findall("{*}SupportArray/{*}FxResponseArray/{*}Identifier")
+    ]
+    xm_ids = [
+        x.text for x in crsd_etree.findall("{*}SupportArray/{*}XMArray/{*}Identifier")
+    ]
+    _remove(crsd_etree, "{*}SupportArray/{*}FxResponseArray")
+    for x in fx_ids + xm_ids:
+        _remove(
+            crsd_etree,
+            f"{{*}}Data/{{*}}Support/{{*}}SupportArray[{{*}}SAId='{x}']",
+        )
+    nsa = crsd_etree.find("{*}Data/{*}Support/{*}NumSupportArrays")
+    nsa.text = str(int(nsa.text) - len(fx_ids + xm_ids))
+    _repack_support_arrays(crsd_etree)
+    _remove(crsd_etree, "{*}PPP")
+    tx_pulse_index_offset = int(crsd_etree.findtext("{*}PVP/{*}TxPulseIndex/{*}Offset"))
+    _remove(crsd_etree, "{*}PVP/{*}TxPulseIndex")
+    for pvp_offset in crsd_etree.findall("{*}PVP/*/{*}Offset"):
+        if int(pvp_offset.text) > tx_pulse_index_offset:
+            pvp_offset.text = str(int(pvp_offset.text) - 1)
+    new_num_bytes_pvps = (
+        int(crsd_etree.findtext("{*}Data/{*}Receive/{*}NumBytesPVP")) - 8
+    )
+    crsd_etree.find("{*}Data/{*}Receive/{*}NumBytesPVP").text = str(new_num_bytes_pvps)
+    _replace_error(crsd_etree, "Rcv")
+
+    # Make PVPs without TxPulseIndex
+    new_pvp_dtype = skcrsd.get_pvp_dtype(crsd_etree)
+    for pvps_sig_dict in pvps_sig_dict_list:
+        new_pvps = np.zeros(pvps_sig_dict["pvps"].shape, new_pvp_dtype)
+        for field in new_pvp_dtype.fields:
+            new_pvps[field] = pvps_sig_dict["pvps"][field]
+        pvps_sig_dict["pvps"] = new_pvps
+
+    offset = 0
+    for pvps_sig_dict in pvps_sig_dict_list:
+        data_rcv = crsd_ew["Data"]["Receive"].find(
+            "Channel", ChId=pvps_sig_dict["chan_id"]
+        )
+        data_rcv["PVPArrayByteOffset"] = str(offset)
+        offset += data_rcv["NumVectors"] * crsd_ew["Data"]["Receive"]["NumBytesPVP"]
+
+    tmp_crsd = (
+        tmp_path_factory.mktemp("data") / good_crsd_xml_path.with_suffix(".crsd").name
+    )
+    new_meta = skcrsd.Metadata(
+        xmltree=crsd_etree,
+    )
+    with open(tmp_crsd, "wb") as f, skcrsd.Writer(f, new_meta) as cw:
+        for pvps_sig_dict in pvps_sig_dict_list:
+            cw.write_pvp(pvps_sig_dict["chan_id"], pvps_sig_dict["pvps"])
+            cw.write_signal(pvps_sig_dict["chan_id"], pvps_sig_dict["signal"])
     yield tmp_crsd

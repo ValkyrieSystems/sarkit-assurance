@@ -5,6 +5,7 @@ import itertools
 import pathlib
 import webbrowser
 
+import numpy as np
 import plotly.graph_objects as go
 import plotly.offline.offline
 
@@ -214,3 +215,89 @@ class Plotter:
 
         if auto_open:
             webbrowser.open(f"file://{output_html.resolve()}")
+
+
+def plot_one_dim(ydata):
+    """Plot a single parameter versus index
+
+    Args
+    ----
+    ydata: `numpy.ndarray`
+        The y-axis data values.
+
+    """
+    fig = go.Figure(
+        data=go.Scatter(x=np.arange(0, len(ydata)), y=ydata, mode="markers")
+    )
+    fig.update_layout(xaxis_title="Vector #")
+    return fig
+
+
+def plot_two_dim(xdata, ydata):
+    """Plot a 2D parametric curve
+
+    Args
+    ----
+    xdata, ydata: `numpy.ndarray`
+        The x-axis and y-axis data values.
+
+    """
+    fig = go.Figure(
+        data=go.Scatter(
+            x=xdata,
+            y=ydata,
+            mode="markers",
+            marker={
+                "size": 2,
+                "color": np.arange(xdata.size),
+                "colorbar": {
+                    "title": "Vector #",
+                },
+            },
+        )
+    )
+    return fig
+
+
+def plot_three_dim(xdata, ydata, zdata):
+    """Plot a 3D parametric curve
+
+    Args
+    ----
+    xdata, ydata, zdata: `numpy.ndarray`
+        The x-axis, y-axis, and z-axis data values.
+
+    """
+    return go.Figure(
+        data=[
+            go.Scatter3d(
+                x=xdata,
+                y=ydata,
+                z=zdata,
+                mode="markers",
+                marker={
+                    "size": 2,
+                    "color": np.arange(xdata.size),
+                    "colorbar": {
+                        "title": "Vector #",
+                    },
+                },
+            )
+        ]
+    )
+
+
+def plot_pvp_table(pvps):
+    """Create a table displaying parameter-value pairs."""
+    align = ["left", "center"]
+    return go.Figure(
+        data=[
+            go.Table(
+                header={"values": ["Parameter", "Value"], "align": align},
+                cells={
+                    "values": [list(pvps.keys()), list(pvps.values())],
+                    "align": align,
+                },
+            )
+        ]
+    )

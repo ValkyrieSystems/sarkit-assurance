@@ -43,17 +43,19 @@ class Plotter(_plot_metadata.Plotter):
         title,
         *,
         channels=None,
+        include_fixed_pvps=False,
     ):
         with skcrsd.Reader(file) as r:
             self.xml = r.metadata.xmltree
             self.ew = skcrsd.ElementWrapper(self.xml.getroot())
             all_channels = [
-                chan["Identifier"] for chan in self.ew["Channel"]["Parameters"]
+                x.text
+                for x in self.xml.findall("{*}Channel/{*}Parameters/{*}Identifier")
             ]
             all_sequences = [
-                seq["Identifier"] for seq in self.ew["TxSequence"]["Parameters"]
+                x.text
+                for x in self.xml.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
             ]
-
             if not channels:
                 self.channels = all_channels
                 self.sequences = all_sequences
@@ -72,13 +74,15 @@ class Plotter(_plot_metadata.Plotter):
                     tx_id = param["SARImage"]["TxId"]
                     self.sequences.append(all_sequences[all_sequences.index(tx_id)])
 
-            self.pvps = {ch_id: r.read_pvps(ch_id) for ch_id in self.channels}
             self.ppps = {tx_id: r.read_ppps(tx_id) for tx_id in self.sequences}
+            self.pvps = {ch_id: r.read_pvps(ch_id) for ch_id in self.channels}
             self.support_arrays = {
                 x.text: r.read_support_array(x.text)
                 for x in self.xml.findall("{*}SupportArray/*/{*}Identifier")
                 if x.getparent().tag.endswith(("GainPhaseArray", "DwellTimeArray"))
             }
+
+        self.include_fixed_pvps = include_fixed_pvps
         super().__init__(title)
 
     def get_ap_delta_ap(self, txrcv, pxpi, target_ecefs):
@@ -491,6 +495,8 @@ class Plotter(_plot_metadata.Plotter):
         return figs
 
     def plot_image_area(self):
+        if not self.xml.getroot().tag.endswith("CRSDsar"):
+            return []
         fig = go.Figure()
         color_set = itertools.cycle(
             zip(plotly.colors.qualitative.Pastel2, plotly.colors.qualitative.Set2)
@@ -796,6 +802,38 @@ class Plotter(_plot_metadata.Plotter):
             )
         return [fig]
 
+    def plot_pvps(self):
+        figs = {}
+        for channel in self.channels:
+            pvps = self.pvps[channel]
+            pvp_data = {name: pvps[name] for name in pvps.dtype.names}
+            fixed_pvps = {
+                k: fixed_v
+                for k, v in pvp_data.items()
+                if (fixed_v := np.unique(v, axis=0)).shape[0] == 1
+            }
+            if fixed_pvps:
+                figs[(channel, "Fixed-PVPs")] = _plot_metadata.plot_pvp_table(
+                    fixed_pvps
+                )
+            for key, value in pvp_data.items():
+                if not self.include_fixed_pvps and key in fixed_pvps:
+                    continue
+                if value.ndim == 1:
+                    fig = _plot_metadata.plot_one_dim(value)
+                elif value.ndim == 2 and value.shape[1] == 2:
+                    fig = _plot_metadata.plot_two_dim(*value.T)
+                elif value.ndim == 2 and value.shape[1] == 3:
+                    fig = _plot_metadata.plot_three_dim(*value.T)
+                figs[(channel, key)] = fig
+
+        for (chan, key), fig in figs.items():
+            fig.update_layout(
+                title_text=f"<b>{key}</b> -  <i>{self.title} (channel: {chan})</i>",
+                meta=f"pvp_{chan}_{key}",
+            )
+        return list(figs.values())
+
 
 def main(args=None):
     parser = argparse.ArgumentParser(
@@ -827,6 +865,7 @@ def main(args=None):
         dest="auto_open",
         help="don't open plots after creation",
     )
+    parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PVPs")
     channel_group = parser.add_mutually_exclusive_group()
     channel_group.add_argument(
         "--ref-chan", action="store_true", help="only use the reference channel's PVPs"
@@ -850,6 +889,7 @@ def main(args=None):
             f,
             html.escape(config.crsd_file),
             channels=channels,
+            include_fixed_pvps=config.plot_fixed,
         )
     save_func = plotter.save_combined if config.concatenate else plotter.save_separate
     prefix = (
