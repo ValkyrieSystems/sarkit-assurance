@@ -924,20 +924,19 @@ class Plotter(_plot_metadata.Plotter):
 
 
 def downsample_last_dim(data, factor):
-    """Downsamples the last dimension of a multidimension `numpy.ndarray`.
+    """Downsamples the last dimension of a multidimensional `numpy.ndarray`.
 
-    Args
-    ----
-    data: `numpy.ndarray`
+    Parameters
+    ----------
+    data : `numpy.ndarray`
         Multidimensional data to be downsampled.
-    factor: int
+    factor : int
         Downsample factor.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result : `numpy.ndarray`
         The downsampled data.
-
     """
     remove = data.shape[-1] % factor
     if remove == 0:
@@ -955,20 +954,19 @@ def downsample_last_dim(data, factor):
 
 
 def downsample_all_dims(data, factor):
-    """Function to downsample all dimensions of a multidimension `numpy.ndarray`.
+    """Function to downsample all dimensions of a multidimensional `numpy.ndarray`.
 
-    Args
-    ----
-    data: `numpy.ndarray`
+    Parameters
+    ----------
+    data : `numpy.ndarray`
         Multidimensional data to be downsampled.
-    factor: int
+    factor : int
         Downsample factor.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result : `numpy.ndarray`
         The downsampled data.
-
     """
     working = data
     for neg_dim in range(1, data.ndim + 1):

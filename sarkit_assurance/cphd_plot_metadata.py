@@ -1088,11 +1088,10 @@ def _make_image_area(area_element, name=None, colors=None):
 def plot_one_dim(ydata):
     """Plot a single parameter versus index
 
-    Args
-    ----
-    ydata: `numpy.ndarray`
+    Parameters
+    ----------
+    ydata : `numpy.ndarray`
         The y-axis data values.
-
     """
     fig = go.Figure(
         data=go.Scatter(x=np.arange(0, len(ydata)), y=ydata, mode="markers")
@@ -1104,11 +1103,10 @@ def plot_one_dim(ydata):
 def plot_two_dim(xdata, ydata):
     """Plot a 2D parametric curve
 
-    Args
-    ----
-    xdata, ydata: `numpy.ndarray`
+    Parameters
+    ----------
+    xdata, ydata : `numpy.ndarray`
         The x-axis and y-axis data values.
-
     """
     fig = go.Figure(
         data=go.Scatter(
@@ -1130,11 +1128,10 @@ def plot_two_dim(xdata, ydata):
 def plot_three_dim(xdata, ydata, zdata):
     """Plot a 3D parametric curve
 
-    Args
-    ----
-    xdata, ydata, zdata: `numpy.ndarray`
+    Parameters
+    ----------
+    xdata, ydata, zdata : `numpy.ndarray`
         The x-axis, y-axis, and z-axis data values.
-
     """
     return go.Figure(
         data=[

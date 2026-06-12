@@ -13,11 +13,25 @@
 
 **sarkit-assurance** is a suite of SAR-related assurance tools in Python.
 
+## Install
+`sarkit-assurance` can be installed using pip:
+
+```sh
+   $ python -m pip install sarkit-assurance
+```
+
+`sarkit-assurance` can also be installed using conda and the conda-forge channel:
+
+```sh
+   $ conda install --channel conda-forge sarkit-assurance
+```
+
 ## License
 This repository is licensed under the [MIT license](./LICENSE).
 
+## Contributing and Development
+Contributions are welcome.
 A few tips for getting started using [PDM](https://pdm-project.org/en/latest/) are below:
-
 
 ```shell
 $ pdm install -G:all  # install SARkit-assurance with optional & dev dependencies

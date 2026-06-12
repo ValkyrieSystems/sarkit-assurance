@@ -49,7 +49,6 @@ class Plotter:
 
         * Always return a list of figures. If a plot is unavailable, the list shall be empty.
         * Populate each figures' `meta` layout attribute with a unique string identifier.
-
     """
 
     def __init__(self, title):
@@ -85,18 +84,17 @@ class Plotter:
     def save_separate(self, output_dir, prefix, figs=None, auto_open=False):
         """Save figures to separate HTML files.
 
-        Args
-        ----
-        output_dir: path-like
+        Parameters
+        ----------
+        output_dir : path-like
             Directory where generated HTML files will be written
-        prefix: str
+        prefix : str
             Prefix used in output filenames
-        figs: dict
+        figs : dict, optional
             Dict mapping plot function names to their list of generated figures.
             If None, the output of `make_available_figures` is used.
-        auto_open: bool
+        auto_open : bool, optional
             If ``True``, open figures after saving.
-
         """
         figs = self.make_available_figures() if figs is None else figs
         output_dir = pathlib.Path(output_dir)
@@ -112,18 +110,17 @@ class Plotter:
     def make_plot_divs(self, figs=None):
         """Make specified figures into HTML divs
 
-        Args
-        ----
-        figs: dict
+        Parameters
+        ----------
+        figs : dict
             Dict mapping plot function names to their list of generated figures.
             If None, the output of `make_available_figures` is used.
 
         Returns
         -------
-        divs_by_id: dict
+        divs_by_id : dict
             Dict keyed by plotter names.  Values are an html div containing a header
             with an id of the key and another div containing the plotly figure.
-
         """
         figs = self.make_available_figures() if figs is None else figs
 
@@ -154,18 +151,17 @@ class Plotter:
     def save_combined(self, output_dir, prefix, figs=None, auto_open=False):
         """Save figures to a combined HTML file.
 
-        Args
-        ----
-        output_dir: path-like
+        Parameters
+        ----------
+        output_dir : path-like
             Directory where generated HTML files will be written
-        prefix: str
+        prefix : str
             Prefix used in output filenames
-        figs: dict
+        figs : dict
             Dict mapping plot function names to their list of generated figures.
             If None, the output of `make_available_figures` is used.
-        auto_open: bool
+        auto_open : bool
             If ``True``, open figures after saving.
-
         """
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
