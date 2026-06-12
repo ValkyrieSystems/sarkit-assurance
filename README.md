@@ -17,13 +17,13 @@
 `sarkit-assurance` can be installed using pip:
 
 ```sh
-   $ python -m pip install sarkit-assurance
+$ python -m pip install sarkit-assurance
 ```
 
 `sarkit-assurance` can also be installed using conda and the conda-forge channel:
 
 ```sh
-   $ conda install --channel conda-forge sarkit-assurance
+$ conda install --channel conda-forge sarkit-assurance
 ```
 
 ## License
