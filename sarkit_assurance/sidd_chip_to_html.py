@@ -125,7 +125,7 @@ def create_sidd_chip_plot(image, ew, feature):
     ----------
     image : ndarray
         SIDD image from which to chip
-    ew: sksidd.ElementWrapper
+    ew : sksidd.ElementWrapper
         SIDD metadata corresponding to `image`
     feature : dict
         GeoJSON Feature
