@@ -103,11 +103,11 @@ def _proj_ecef_to_image(sidd_ew, tgt_ecef):
         row_col_ecef = sksidd.pixel_to_ecef(
             sidd_ew.elem.getroottree(), np.stack([curr_pt, plus_row, plus_col], axis=0)
         )
-        row_col_r_rdot = _rg_rgrate_from_pos_vel_tgt(pos, vel, row_col_ecef)
-        d_r_rdot_d_row_col = row_col_r_rdot[1:] - row_col_r_rdot[0]
+        r_rdot_row_col = _rg_rgrate_from_pos_vel_tgt(pos, vel, row_col_ecef)
+        d_r_rdot_d_row_col = r_rdot_row_col[1:] - r_rdot_row_col[0]
         d_row_col_d_r_rdot = np.linalg.inv(d_r_rdot_d_row_col)
-        tgt_delta_r_rdot = tgt_r_rdot - row_col_r_rdot[0]
-        delta_row_col = d_row_col_d_r_rdot @ tgt_delta_r_rdot
+        tgt_delta_r_rdot = tgt_r_rdot - r_rdot_row_col[0]
+        delta_row_col = tgt_delta_r_rdot @ d_row_col_d_r_rdot
         curr_pt = np.clip(curr_pt + delta_row_col, [0, 0], image_shape)
         if np.linalg.norm(delta_row_col) < 0.1:
             success = True

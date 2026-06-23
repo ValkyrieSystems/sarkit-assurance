@@ -128,6 +128,33 @@ def make_cphd(tmp_path_factory, sig_format):
     return tmp_cphd
 
 
+@pytest.fixture(scope="session")
+def example_dynamic_stripmap_sidd(tmp_path_factory):
+    sidd_xml = DATAPATH / "dynamic_stripmap_example.sidd.xml"
+    sidd_xml_etree = lxml.etree.parse(sidd_xml)
+    sidd_array = np.asarray(_image(sidd_xml_etree).convert(mode="L"))
+
+    sec = sksidd.NitfSecurityFields(clas="U")
+    write_metadata = sksidd.NitfMetadata(
+        file_header_part=sksidd.NitfFileHeaderPart(ostaid="UNKNOWN", security=sec)
+    )
+    write_metadata.images.extend(
+        [
+            sksidd.NitfProductImageMetadata(
+                xmltree=sidd_xml_etree,
+                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
+                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
+            )
+        ]
+    )
+
+    tmp_sidd = tmp_path_factory.mktemp("data") / "dynamic_stripmap.sidd"
+    with tmp_sidd.open("wb") as file:
+        with sksidd.NitfWriter(file, write_metadata) as writer:
+            writer.write_image(0, sidd_array)
+    yield tmp_sidd
+
+
 @pytest.fixture(scope="session", params=["CI2", "CI4", "CF8"])
 def example_cphd(tmp_path_factory, request):
     yield make_cphd(tmp_path_factory, request.param)
