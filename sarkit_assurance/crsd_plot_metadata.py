@@ -42,12 +42,14 @@ class Plotter(_plot_metadata.Plotter):
         file,
         title,
         *,
-        channels=None,
-        include_fixed_pvps=False,
+        channels,
+        sequences,
+        include_fixed_pxps=False,
     ):
         with skcrsd.Reader(file) as r:
             self.xml = r.metadata.xmltree
             self.ew = skcrsd.ElementWrapper(self.xml.getroot())
+            crsd_type = lxml.etree.QName(self.xml.getroot()).localname
             all_channels = [
                 x.text
                 for x in self.xml.findall("{*}Channel/{*}Parameters/{*}Identifier")
@@ -56,33 +58,37 @@ class Plotter(_plot_metadata.Plotter):
                 x.text
                 for x in self.xml.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
             ]
-            if not channels:
-                self.channels = all_channels
-                self.sequences = all_sequences
-            else:
-                if not set(channels) <= set(all_channels):
-                    raise ValueError(
-                        (
-                            f"Unrecognized channel(s): {set(channels) - set(all_channels)}; "
-                            f"Must be from: {all_channels}"
-                        )
+
+            if not set(sequences) <= set(all_sequences):
+                raise ValueError(
+                    (
+                        f"Unrecognized sequence(s): {set(sequences) - set(all_sequences)}; "
+                        f"Must be from: {all_sequences}"
                     )
-                self.channels = channels
-                self.sequences = []
+                )
+            if not set(channels) <= set(all_channels):
+                raise ValueError(
+                    (
+                        f"Unrecognized channel(s): {set(channels) - set(all_channels)}; "
+                        f"Must be from: {all_channels}"
+                    )
+                )
+            if crsd_type == "CRSDsar":
                 for chan in channels:
                     param = self.ew["Channel"].find("Parameters", Identifier=chan)
                     tx_id = param["SARImage"]["TxId"]
-                    self.sequences.append(all_sequences[all_sequences.index(tx_id)])
-
-            self.ppps = {tx_id: r.read_ppps(tx_id) for tx_id in self.sequences}
+                    sequences.append(tx_id)
+            self.channels = list(set(channels))
+            self.sequences = list(set(sequences))
             self.pvps = {ch_id: r.read_pvps(ch_id) for ch_id in self.channels}
+            self.ppps = {tx_id: r.read_ppps(tx_id) for tx_id in self.sequences}
             self.support_arrays = {
                 x.text: r.read_support_array(x.text)
                 for x in self.xml.findall("{*}SupportArray/*/{*}Identifier")
                 if x.getparent().tag.endswith(("GainPhaseArray", "DwellTimeArray"))
             }
 
-        self.include_fixed_pvps = include_fixed_pvps
+        self.include_fixed_pxps = include_fixed_pxps
         super().__init__(title)
 
     def get_ap_delta_ap(self, txrcv, pxpi, target_ecefs):
@@ -817,7 +823,7 @@ class Plotter(_plot_metadata.Plotter):
                     fixed_pvps
                 )
             for key, value in pvp_data.items():
-                if not self.include_fixed_pvps and key in fixed_pvps:
+                if not self.include_fixed_pxps and key in fixed_pvps:
                     continue
                 if value.ndim == 1:
                     fig = _plot_metadata.plot_one_dim(value)
@@ -834,6 +840,38 @@ class Plotter(_plot_metadata.Plotter):
             )
         return list(figs.values())
 
+    def plot_ppps(self):
+        figs = {}
+        for sequence in self.sequences:
+            ppps = self.ppps[sequence]
+            ppp_data = {name: ppps[name] for name in ppps.dtype.names}
+            fixed_ppps = {
+                k: fixed_v
+                for k, v in ppp_data.items()
+                if (fixed_v := np.unique(v, axis=0)).shape[0] == 1
+            }
+            if fixed_ppps:
+                figs[(sequence, "Fixed-PPPs")] = _plot_metadata.plot_pvp_table(
+                    fixed_ppps
+                )
+            for key, value in ppp_data.items():
+                if not self.include_fixed_pxps and key in fixed_ppps:
+                    continue
+                if value.ndim == 1:
+                    fig = _plot_metadata.plot_one_dim(value)
+                elif value.ndim == 2 and value.shape[1] == 2:
+                    fig = _plot_metadata.plot_two_dim(*value.T)
+                elif value.ndim == 2 and value.shape[1] == 3:
+                    fig = _plot_metadata.plot_three_dim(*value.T)
+                figs[(sequence, key)] = fig
+
+        for (seq, key), fig in figs.items():
+            fig.update_layout(
+                title_text=f"<b>{key}</b> -  <i>{self.title} (sequence: {seq})</i>",
+                meta=f"ppp_{seq}_{key}",
+            )
+        return list(figs.values())
+
 
 def main(args=None):
     parser = argparse.ArgumentParser(
@@ -846,6 +884,30 @@ def main(args=None):
         type=pathlib.Path,
         default=pathlib.Path.cwd(),
         help="directory where output plot(s) will be placed",
+    )
+
+    channel_group = parser.add_argument_group()
+    channel_group.add_argument(
+        "--chan", nargs="+", help="use the specified channels' PVPs"
+    )
+    channel_group.add_argument(
+        "--ref-chan", action="store_true", help="use the reference channels' PVPs"
+    )
+    channel_group.add_argument(
+        "--all-chan", action="store_true", help="use all channels' PVPs"
+    )
+
+    sequence_group = parser.add_argument_group()
+    sequence_group.add_argument(
+        "--seq",
+        nargs="+",
+        help="use the specified sequences' PPPs",
+    )
+    sequence_group.add_argument(
+        "--ref-seq", action="store_true", help="use the reference sequences' PPPs"
+    )
+    sequence_group.add_argument(
+        "--all-seq", action="store_true", help="use all sequences' PPPs"
     )
     parser.add_argument(
         "-p",
@@ -865,31 +927,69 @@ def main(args=None):
         dest="auto_open",
         help="don't open plots after creation",
     )
-    parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PVPs")
-    channel_group = parser.add_mutually_exclusive_group()
-    channel_group.add_argument(
-        "--ref-chan", action="store_true", help="only use the reference channel's PVPs"
-    )
-    channel_group.add_argument(
-        "--chan",
-        action="extend",
-        nargs="+",
-        help="use the specified channels' PVPs (default: all)",
-    )
+    parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PXPs")
     config = parser.parse_args(args)
 
     with open(config.crsd_file, "rb") as f, skcrsd.Reader(f) as r:
-        if config.ref_chan:
-            channels = [r.metadata.xmltree.findtext("./{*}Channel/{*}RefChId")]
-        else:
-            channels = config.chan
+        crsd_type = lxml.etree.QName(r.metadata.xmltree.getroot()).localname
+        if crsd_type == "CRSDtx" and not (
+            config.seq or config.ref_seq or config.all_seq
+        ):
+            parser.error("One of [--seq|--ref-seq|--all-seq] is required with CRSDtx")
+        if crsd_type == "CRSDtx" and (
+            config.chan or config.ref_chan or config.all_chan
+        ):
+            parser.error("[--chan|--ref-chan|--all-chan] is not valid with CRSDtx")
+        if crsd_type == "CRSDrcv" and not (
+            config.chan or config.ref_chan or config.all_chan
+        ):
+            parser.error(
+                "One of [--chan|--ref-chan|--all-chan] is required with CRSDrcv"
+            )
+        if crsd_type == "CRSDrcv" and (config.seq or config.ref_seq or config.all_seq):
+            parser.error("[--seq|--ref-seq|--all-seq] is not valid with CRSDrcv")
+
+        def get_channels(config, xml):
+            all_channels = [
+                x.text for x in xml.findall("{*}Channel/{*}Parameters/{*}Identifier")
+            ]
+            if config.all_chan:
+                return all_channels
+
+            channels = []
+            if config.ref_chan:
+                channels.append(xml.findtext("./{*}Channel/{*}RefChId"))
+            if config.chan:
+                channels.extend(config.chan)
+            return channels
+
+        def get_sequences(config, xml):
+            all_sequences = [
+                x.text for x in xml.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
+            ]
+            if config.all_seq:
+                return all_sequences
+
+            sequences = []
+            if config.ref_seq:
+                sequences.append(xml.findtext("./{*}TxSequence/{*}RefTxId"))
+            if config.seq:
+                sequences.extend(config.seq)
+            return sequences
+
+        channels = get_channels(config, r.metadata.xmltree)
+        sequences = get_sequences(config, r.metadata.xmltree)
+
+        if crsd_type == "CRSDsar" and not channels and not sequences:
+            parser.error("At least one channel or sequence is required with CRSDsar")
 
         f.seek(0)
         plotter = Plotter(
             f,
             html.escape(config.crsd_file),
             channels=channels,
-            include_fixed_pvps=config.plot_fixed,
+            sequences=sequences,
+            include_fixed_pxps=config.plot_fixed,
         )
     save_func = plotter.save_combined if config.concatenate else plotter.save_separate
     prefix = (

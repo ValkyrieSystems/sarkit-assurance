@@ -45,7 +45,7 @@ def _remove(root, pattern):
     if (elem := root.find(pattern)) is not None:
         elem.getparent().remove(elem)
     else:
-        print(f"Cannot find {pattern=}")
+        print(f"Skipped remove, cannot find {pattern=}")
 
 
 def _replace_error(crsd_etree, sensor_type):
