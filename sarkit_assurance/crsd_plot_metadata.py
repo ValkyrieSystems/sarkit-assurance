@@ -812,7 +812,12 @@ class Plotter(_plot_metadata.Plotter):
         figs = {}
         for channel in self.channels:
             pvps = self.pvps[channel]
-            pvp_data = {name: pvps[name] for name in pvps.dtype.names}
+            pvp_data = {}
+            for name in pvps.dtype.names:
+                if pvps[name].dtype == np.dtype([("Int", ">i8"), ("Frac", ">f8")]):
+                    pvp_data[name] = from_intfrac(pvps[name])
+                else:
+                    pvp_data[name] = pvps[name]
             fixed_pvps = {
                 k: fixed_v
                 for k, v in pvp_data.items()
@@ -844,7 +849,12 @@ class Plotter(_plot_metadata.Plotter):
         figs = {}
         for sequence in self.sequences:
             ppps = self.ppps[sequence]
-            ppp_data = {name: ppps[name] for name in ppps.dtype.names}
+            ppp_data = {}
+            for name in ppps.dtype.names:
+                if ppps[name].dtype == np.dtype([("Int", ">i8"), ("Frac", ">f8")]):
+                    ppp_data[name] = from_intfrac(ppps[name])
+                else:
+                    ppp_data[name] = ppps[name]
             fixed_ppps = {
                 k: fixed_v
                 for k, v in ppp_data.items()
