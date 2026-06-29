@@ -13,6 +13,8 @@ import sarkit.sidd as sksidd
 import sarkit.wgs84
 import shapely.geometry as shg
 
+from sarkit_assurance import _remap
+
 try:
     from smart_open import open
 except ImportError:
@@ -161,6 +163,10 @@ def create_sidd_chip_plot(image, ew, feature):
         return None
 
     subimage = image[start_rc[0] : stop_rc[0], start_rc[1] : stop_rc[1], ...]
+    if np.issubdtype(subimage.dtype, np.integer) and subimage.dtype.itemsize == 2:
+        subimage = _remap.simple_log_remap(subimage, min_low_relative=1e-3).astype(
+            np.uint8
+        )
 
     fig = go.Figure()
     if len(subimage.shape) == 2:
@@ -291,7 +297,7 @@ def _get_image(reader, image_num):
     if px_type == "MONO8I":
         img = arr
     elif px_type == "MONO16I":
-        img = (arr // 256).astype(np.uint8)
+        img = arr
     elif px_type == "MONO8LU":
         lut = img_meta.lookup_table
         img = lut[arr]
