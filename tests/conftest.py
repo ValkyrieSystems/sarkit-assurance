@@ -128,6 +128,33 @@ def make_cphd(tmp_path_factory, sig_format):
     return tmp_cphd
 
 
+@pytest.fixture(scope="session")
+def example_dynamic_stripmap_sidd(tmp_path_factory):
+    sidd_xml = DATAPATH / "dynamic_stripmap_example.sidd.xml"
+    sidd_xml_etree = lxml.etree.parse(sidd_xml)
+    sidd_array = np.asarray(_image(sidd_xml_etree).convert(mode="L"))
+
+    sec = sksidd.NitfSecurityFields(clas="U")
+    write_metadata = sksidd.NitfMetadata(
+        file_header_part=sksidd.NitfFileHeaderPart(ostaid="UNKNOWN", security=sec)
+    )
+    write_metadata.images.extend(
+        [
+            sksidd.NitfProductImageMetadata(
+                xmltree=sidd_xml_etree,
+                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
+                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
+            )
+        ]
+    )
+
+    tmp_sidd = tmp_path_factory.mktemp("data") / "dynamic_stripmap.sidd"
+    with tmp_sidd.open("wb") as file:
+        with sksidd.NitfWriter(file, write_metadata) as writer:
+            writer.write_image(0, sidd_array)
+    yield tmp_sidd
+
+
 @pytest.fixture(scope="session", params=["CI2", "CI4", "CF8"])
 def example_cphd(tmp_path_factory, request):
     yield make_cphd(tmp_path_factory, request.param)
@@ -237,11 +264,12 @@ def multi_sidd(tmp_path_factory):
     expected_img_modes.append("L")
 
     # MONO16I
+    def exp_8bit_to_16bit(data):
+        return (2.0 ** (data / (255 / 16.0)) - 1).astype(np.uint16)
+
     basis_etree1 = lxml.etree.parse(sidd_xml)
     basis_etree1.find("./{*}Display/{*}PixelType").text = "MONO16I"
-    basis_array1 = (
-        np.asarray(_image(basis_etree1).convert(mode="L")).astype(np.uint16) << 4
-    )
+    basis_array1 = exp_8bit_to_16bit(np.asarray(_image(basis_etree1).convert(mode="L")))
     expected_img_modes.append("I;16")
 
     def _set_3_bands(tree):
@@ -311,7 +339,7 @@ def multi_sidd(tmp_path_factory):
     basis_etree5 = lxml.etree.parse(sidd_xml)
     basis_array5 = np.asarray(_image(basis_etree5).convert(mode="L"))
     basis_etree5.find("./{*}Display/{*}PixelType").text = "MONO8LU"
-    lookup_table5 = np.arange(256, dtype=np.uint16) << 4
+    lookup_table5 = exp_8bit_to_16bit(np.arange(256, dtype=np.uint16))
     expected_img_modes.append("I;16")
 
     sec = sksidd.NitfSecurityFields(clas="U")

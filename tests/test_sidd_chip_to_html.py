@@ -98,6 +98,41 @@ def test_no_intersection(tmp_path, multi_sidd):
     assert not html_file.exists()
 
 
+def test_dynamic_stripmap(tmp_path, example_dynamic_stripmap_sidd):
+    with (
+        open(example_dynamic_stripmap_sidd, "rb") as file,
+        sksidd.NitfReader(file) as reader,
+    ):
+        xmltree = reader.metadata.images[0].xmltree
+
+    ul_ecef = sksidd.pixel_to_ecef(xmltree, [2, 2])
+    ul_lonlathae = sarkit.wgs84.cartesian_to_geodetic(ul_ecef)[[1, 0, 2]]
+    geojson_file = tmp_path / "geo.json"
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": ul_lonlathae.tolist(),
+                },
+            },
+        ],
+    }
+    geojson_file.write_text(json.dumps(geojson))
+    html_file = tmp_path / "out.html"
+
+    assert (
+        scth.main(
+            [str(example_dynamic_stripmap_sidd), str(geojson_file), str(html_file)]
+        )
+        == 0
+    )
+
+    assert html_file.exists()
+
+
 def test_smart_open(tmp_path, multi_sidd):
     with open(multi_sidd, "rb") as file, sksidd.NitfReader(file) as reader:
         xmltree = reader.metadata.images[0].xmltree

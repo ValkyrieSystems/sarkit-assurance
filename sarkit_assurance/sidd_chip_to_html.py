@@ -13,6 +13,8 @@ import sarkit.sidd as sksidd
 import sarkit.wgs84
 import shapely.geometry as shg
 
+from sarkit_assurance import _remap
+
 try:
     from smart_open import open
 except ImportError:
@@ -103,11 +105,11 @@ def _proj_ecef_to_image(sidd_ew, tgt_ecef):
         row_col_ecef = sksidd.pixel_to_ecef(
             sidd_ew.elem.getroottree(), np.stack([curr_pt, plus_row, plus_col], axis=0)
         )
-        row_col_r_rdot = _rg_rgrate_from_pos_vel_tgt(pos, vel, row_col_ecef)
-        d_r_rdot_d_row_col = row_col_r_rdot[1:] - row_col_r_rdot[0]
+        r_rdot_row_col = _rg_rgrate_from_pos_vel_tgt(pos, vel, row_col_ecef)
+        d_r_rdot_d_row_col = r_rdot_row_col[1:] - r_rdot_row_col[0]
         d_row_col_d_r_rdot = np.linalg.inv(d_r_rdot_d_row_col)
-        tgt_delta_r_rdot = tgt_r_rdot - row_col_r_rdot[0]
-        delta_row_col = d_row_col_d_r_rdot @ tgt_delta_r_rdot
+        tgt_delta_r_rdot = tgt_r_rdot - r_rdot_row_col[0]
+        delta_row_col = tgt_delta_r_rdot @ d_row_col_d_r_rdot
         curr_pt = np.clip(curr_pt + delta_row_col, [0, 0], image_shape)
         if np.linalg.norm(delta_row_col) < 0.1:
             success = True
@@ -161,6 +163,10 @@ def create_sidd_chip_plot(image, ew, feature):
         return None
 
     subimage = image[start_rc[0] : stop_rc[0], start_rc[1] : stop_rc[1], ...]
+    if np.issubdtype(subimage.dtype, np.integer) and subimage.dtype.itemsize == 2:
+        subimage = _remap.simple_log_remap(subimage, min_low_relative=1e-3).astype(
+            np.uint8
+        )
 
     fig = go.Figure()
     if len(subimage.shape) == 2:
@@ -291,7 +297,7 @@ def _get_image(reader, image_num):
     if px_type == "MONO8I":
         img = arr
     elif px_type == "MONO16I":
-        img = (arr // 256).astype(np.uint8)
+        img = arr
     elif px_type == "MONO8LU":
         lut = img_meta.lookup_table
         img = lut[arr]
