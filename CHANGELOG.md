@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-29
+
 ### Fixed
 - computation of `delta_row_col` in `sidd_chip_to_html._proj_ecef_to_image`
 - made log remap configurable so that it can be used for chipping of 16-bit SIDDs
@@ -33,7 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sicd_plot_metadata`
 - `sidd_thumb`
 
-[unreleased]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ValkyrieSystems/sarkit-assurance/releases/tag/v0.1.0
