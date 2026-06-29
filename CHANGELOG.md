@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - computation of `delta_row_col` in `sidd_chip_to_html._proj_ecef_to_image`
+- made log remap configurable so that it can be used for chipping of 16-bit SIDDs
 
 
 ## [0.2.0] - 2026-06-04

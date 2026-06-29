@@ -9,8 +9,42 @@ def _scale_to_byte(data):
     return ((data - min_val) * 256 / (max_val - min_val)).clip(0, 255).astype(np.uint8)
 
 
+def simple_log_remap(data, cut_low_frac=0.05, cut_high_frac=0.0, min_low_relative=1e-6):
+    """Log encode an array to 8 bits based upon percentile saturation and maximum dynamic range
+
+    Parameters
+    ----------
+    data : np.ndarray
+        data to encode
+    cut_low_frac : float, optional
+        The fraction of the samples to consider below threshold.
+        (Default: ``0.05``)
+    cut_high_frac : float, optional
+        The fraction of the samples to consider above threshold.
+        (Default: ``0.00``)
+    min_low_relative : float, optional
+        If not zero, clip ``data`` to ``min_low_relative  * max(data)`` before statistics.
+        (Default: ``1e-6``)
+
+    Returns
+    -------
+    np.ndarray
+        8-bit encoding
+    """
+
+    low_cutoff = np.maximum(
+        np.quantile(data, cut_low_frac), data.max() * min_low_relative
+    )
+    high_cutoff = np.quantile(data, 1.0 - cut_high_frac)
+
+    data = np.log10(data.clip(low_cutoff, high_cutoff))
+    data = _scale_to_byte(data)
+    return data
+
+
 def simple_sicd_remap(image: npt.NDArray) -> npt.NDArray:
     """Convert a SICD pixel array into an viewable 8-bit image
+
     Parameters
     ----------
     image : np.ndarray
@@ -39,6 +73,4 @@ def simple_sicd_remap(image: npt.NDArray) -> npt.NDArray:
     else:
         img = image.real**2 + image.imag**2
 
-    img = np.log10(img.clip(img.max() / 1e6, None))
-    img = _scale_to_byte(img)
-    return img
+    return simple_log_remap(img)
