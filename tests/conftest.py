@@ -396,6 +396,33 @@ def multi_sidd(tmp_path_factory):
     yield tmp_sidd
 
 
+@pytest.fixture(scope="session")
+def example_sidd(tmp_path_factory):
+    sidd_xml = DATAPATH / "example-sicd-1.4.0-matching-sidd.xml"
+    sidd_xml_etree = lxml.etree.parse(sidd_xml)
+    sidd_array = np.asarray(_image(sidd_xml_etree).convert(mode="L"))
+
+    sec = sksidd.NitfSecurityFields(clas="U")
+    write_metadata = sksidd.NitfMetadata(
+        file_header_part=sksidd.NitfFileHeaderPart(ostaid="UNKNOWN", security=sec)
+    )
+    write_metadata.images.extend(
+        [
+            sksidd.NitfProductImageMetadata(
+                xmltree=sidd_xml_etree,
+                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
+                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
+            ),
+        ]
+    )
+
+    tmp_sidd = tmp_path_factory.mktemp("data") / "example.sidd"
+    with tmp_sidd.open("wb") as file:
+        with sksidd.NitfWriter(file, write_metadata) as writer:
+            writer.write_image(0, sidd_array)
+    yield tmp_sidd
+
+
 @pytest.fixture
 def sicd_xml():
     return good_sicd_xml_path
@@ -418,6 +445,10 @@ def example_sicd(tmp_path_factory):
     ncols = int(sicd_etree.findtext("{*}ImageData/{*}NumCols"))
     pixel_type = sicd_etree.findtext("{*}ImageData/{*}PixelType")
     dtype = sksicd.PIXEL_TYPES[pixel_type]["dtype"]
+    arr = _random_array((nrows, ncols), dtype)
+    center_row = arr.shape[0] // 2
+    center_col = arr.shape[1] // 2
+    arr[center_row, center_col] = (arr["real"].max(), arr["imag"].max())
     with open(tmp_sicd, "wb") as f, sksicd.NitfWriter(f, sicd_meta) as w:
-        w.write_image(_random_array((nrows, ncols), dtype))
+        w.write_image(arr)
     yield tmp_sicd
