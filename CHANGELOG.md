@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `joint_chip_to_html`
+
 ## [0.2.1] - 2026-06-29
 
 ### Fixed
