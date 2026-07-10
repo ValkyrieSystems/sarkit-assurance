@@ -17,18 +17,12 @@ import shapely.affinity
 import shapely.geometry
 from scipy import constants
 
-from . import _plot_metadata, utils
+from . import _plot_metadata, _remap, utils
 
 try:
     from smart_open import open
 except ImportError:
     pass
-
-
-def _scale_to_byte(data):
-    min_val = data.min()
-    max_val = data.max()
-    return ((data - min_val) * 256 / (max_val - min_val)).clip(0, 255).astype(np.uint8)
 
 
 def valid_data_polygon(sicd_ew):
@@ -349,7 +343,7 @@ class Plotter(_plot_metadata.Plotter):
             chip[: rchip.shape[0], : rchip.shape[1]] = rchip
             fchip = np.abs(np.fft.fftshift(np.fft.fft2(chip))) ** 2
             fchip = np.log(fchip.clip(fchip.max() / 1e5, None))
-            fchip = _scale_to_byte(fchip)
+            fchip = _remap._scale_to_byte(fchip)
             rc = dict(row=(index // 3 + 1), col=(index % 3 + 2))
             fig.add_heatmap(
                 z=fchip,
@@ -471,7 +465,7 @@ class Plotter(_plot_metadata.Plotter):
             tmp = self.sample_data.real**2 + self.sample_data.imag**2
             tmp = np.log10(tmp.clip(tmp.max() / 1e6, None))
             tmp = downsample_all_dims(tmp, self.downsample_factor)
-            tmp = _scale_to_byte(tmp)
+            tmp = _remap._scale_to_byte(tmp)
             downsamp_offset = (self.downsample_factor - 1) / 2.0
             fig.add_heatmap(
                 z=tmp,
@@ -926,20 +920,19 @@ class Plotter(_plot_metadata.Plotter):
 
 
 def downsample_last_dim(data, factor):
-    """Downsamples the last dimension of a multidimension `numpy.ndarray`.
+    """Downsamples the last dimension of a multidimensional `numpy.ndarray`.
 
-    Args
-    ----
-    data: `numpy.ndarray`
+    Parameters
+    ----------
+    data : `numpy.ndarray`
         Multidimensional data to be downsampled.
-    factor: int
+    factor : int
         Downsample factor.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result : `numpy.ndarray`
         The downsampled data.
-
     """
     remove = data.shape[-1] % factor
     if remove == 0:
@@ -957,20 +950,19 @@ def downsample_last_dim(data, factor):
 
 
 def downsample_all_dims(data, factor):
-    """Function to downsample all dimensions of a multidimension `numpy.ndarray`.
+    """Function to downsample all dimensions of a multidimensional `numpy.ndarray`.
 
-    Args
-    ----
-    data: `numpy.ndarray`
+    Parameters
+    ----------
+    data : `numpy.ndarray`
         Multidimensional data to be downsampled.
-    factor: int
+    factor : int
         Downsample factor.
 
     Returns
     -------
-    result: `numpy.ndarray`
+    result : `numpy.ndarray`
         The downsampled data.
-
     """
     working = data
     for neg_dim in range(1, data.ndim + 1):

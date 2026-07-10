@@ -27,6 +27,11 @@ def lint(session):
         "format",
         "--diff",
     )
+    session.run(
+        "numpydoc",
+        "lint",
+        *((pathlib.Path(__file__).parent / "sarkit_assurance").rglob("*.py")),
+    )
     session.run("mypy", pathlib.Path(__file__).parent / "sarkit_assurance")
 
 
