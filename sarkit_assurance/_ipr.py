@@ -1,5 +1,7 @@
 """Common utilities for IPR tools"""
 
+import json
+
 import numpy as np
 import scipy.fft
 
@@ -162,3 +164,10 @@ def _fft_ops(n_fft, n_out, scale, sign, fold_in, fold_out, image):
         output[..., :] = tmp[..., :n_out]
 
     return output
+
+
+class NdArrJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        return super().default(o)
