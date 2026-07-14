@@ -17,7 +17,7 @@ import shapely.affinity
 import shapely.geometry
 from scipy import constants
 
-from . import _plot_metadata, _remap
+from . import _plot_metadata, _remap, _sicd_utils
 
 try:
     from smart_open import open
@@ -27,19 +27,6 @@ except ImportError:
 
 def unit(v):
     return v / np.linalg.norm(v, axis=-1, keepdims=True)
-
-
-def valid_data_polygon(sicd_ew):
-    """Generate the ValidData polygon object"""
-    vertices = sicd_ew["ImageData"].get("ValidData", None)
-    if vertices is None:
-        # Use edges of full image
-        nrows = sicd_ew["ImageData"]["FullImage"]["NumRows"]
-        ncols = sicd_ew["ImageData"]["FullImage"]["NumCols"]
-
-        vertices = [(0, 0), (0, ncols - 1), (nrows - 1, ncols - 1), (nrows - 1, 0)]
-
-    return shapely.geometry.Polygon(vertices)
 
 
 def pfa_phd_polygon(sicd_ew):
@@ -260,7 +247,7 @@ class Plotter(_plot_metadata.Plotter):
             self.ew["ImageData"]["FirstRow"],
             self.ew["ImageData"]["FirstCol"],
         )
-        valid_data = valid_data_polygon(self.ew).intersection(
+        valid_data = _sicd_utils.get_validdata_polygon(self.ew).intersection(
             shapely.geometry.box(
                 first[0], first[1], image_shape[0] + first[0], image_shape[1] + first[1]
             )
@@ -500,7 +487,7 @@ class Plotter(_plot_metadata.Plotter):
         )
         _plot_polygon(
             fig,
-            valid_data_polygon(self.ew),
+            _sicd_utils.get_validdata_polygon(self.ew),
             swap_xy=True,
             name="ValidData",
             line_color="red",
@@ -553,7 +540,7 @@ class Plotter(_plot_metadata.Plotter):
         )
         _plot_polygon(
             fig,
-            valid_data_polygon(self.ew),
+            _sicd_utils.get_validdata_polygon(self.ew),
             swap_xy=True,
             name="ValidData",
             line=dict(color="black", dash="dash"),
@@ -675,7 +662,7 @@ class Plotter(_plot_metadata.Plotter):
         scp_time = self.ew["SCPCOA"]["SCPTime"]
         tcoapoly = self.ew["Grid"]["TimeCOAPoly"]
 
-        exterior = valid_data_polygon(self.ew).exterior.coords[:]
+        exterior = _sicd_utils.get_validdata_polygon(self.ew).exterior.coords[:]
         points = []
         for start, stop in zip(exterior[:-1], exterior[1:]):
             xvals = np.linspace(start[0], stop[0], 4, endpoint=False)
