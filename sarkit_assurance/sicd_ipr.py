@@ -13,7 +13,7 @@ import sarkit.sicd as sksicd
 import sarkit.wgs84
 import shapely
 
-from . import _ipr, _sicd_utils
+from . import _ipr, _sicd_utils, names
 
 try:
     from smart_open import open
@@ -22,6 +22,10 @@ except ImportError:
 
 NUM_SIDELOBES_VALIDDATA_PAD = 10
 NOM_CHIP_EDGE_PX = 256
+
+
+class UnsupportedChipError(Exception):
+    """Chip unsupported by SICD"""
 
 
 def get_padded_validdata(ew: sksicd.ElementWrapper) -> shapely.Polygon:
@@ -88,43 +92,68 @@ def analyze(
         feature_props.update(valid=True, projected_location_xrowycol=coord_xrowycol)
         features_to_analyze.append(feature)
 
-    search_offset = np.zeros(2)
-    for search_size_px in search_sizes_px or (None,):
-        for feature in features_to_analyze:
-            chip_and_measure(
-                sicd_reader,
-                feature,
-                search_size_px=search_size_px,
-                search_offset=search_offset,
-            )
+    ss_rc = [ew["Grid"][d]["SS"] for d in ("Row", "Col")]
+    bw_rc = [ew["Grid"][d]["ImpRespBW"] for d in ("Row", "Col")]
 
-        features_to_analyze = [
-            feature for feature in features_to_analyze if feature["properties"]["valid"]
-        ]
-        if features_to_analyze:
-            search_offset = np.median(
-                [
-                    f["properties"]["observed_location_offset_xrowycol"]
-                    for f in features_to_analyze
-                ],
-                axis=0,
-            )
+    search_offset = np.zeros(2)
+    search_sizes = search_sizes_px or (None,)
+    for iter_index, search_size_px in enumerate(search_sizes):
+        is_last_iter = iter_index + 1 == len(search_sizes)
+        this_iter_offsets = []
+        for feature in features_to_analyze:
+            try:
+                est_loc_xrowycol, peak_power, iprparts = chip_and_estimate_peak(
+                    sicd_reader,
+                    feature["properties"]["projected_location_xrowycol"]
+                    + search_offset,
+                    search_size_px=search_size_px,
+                )
+                offset_xrowycol = (
+                    est_loc_xrowycol
+                    - feature["properties"]["projected_location_xrowycol"]
+                )
+                this_iter_offsets.append(offset_xrowycol)
+                if is_last_iter:
+                    feature["properties"].update(
+                        valid=True,
+                        observed_location_offset_xrowycol=offset_xrowycol,
+                        peak_power=peak_power,
+                    )
+
+                    fig = _ipr.plot_ipr(
+                        iprparts, ss_rc, bw_rc, ew["Grid"]["Row"]["Sgn"]
+                    )
+                    figstem = f"sicd_ipr{feature['properties']['index']}"
+                    figtitle = (
+                        f"SICD IPR Analysis - Feature #{feature['properties']['index']}"
+                    )
+                    if "id" in feature:
+                        figstem += f"-{names.sanitize_name(feature['id'])}"
+                        figtitle += f": {feature['id']}"
+                    fig.update_layout(title_text=figtitle)
+                    fig.write_html(outdir / f"{figstem}.html")
+            except UnsupportedChipError as exc:
+                feature["properties"].update(valid=False, message=str(exc))
+
+        if not this_iter_offsets:
+            # no targets were found
+            break
+        search_offset = np.median(this_iter_offsets)
 
     (outdir / "sicd_ipr.json").write_text(
         json.dumps(geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
     )
 
 
-def chip_and_measure(
+def chip_and_estimate_peak(
     sicd_reader: sksicd.NitfReader,
-    feature: dict[str, Any],
+    chip_center_xrowycol: npt.ArrayLike,
     *,
     search_size_px: int | None = None,
-    search_offset: npt.ArrayLike = (0, 0),
-) -> None:
-    """Perform IPR analysis for a feature
+) -> tuple[np.ndarray, float, _ipr.IprParts]:
+    """Chip a SICD around a center point then estimate a nearby peak power and location inside of it.
 
-    TODO: docstrings
+    TODO: better docstring
     """
     chip_edge_px = NOM_CHIP_EDGE_PX
     if search_size_px is not None:
@@ -132,27 +161,21 @@ def chip_and_measure(
             chip_edge_px, 2 ** (int(np.ceil(np.log2(search_size_px + 1)) + 1))
         )
     chip_size = np.array([chip_edge_px, chip_edge_px])
-
-    search_offset = np.asarray(search_offset)
-
-    feature_props = feature["properties"]
-    proj_loc_xrowycol: np.ndarray = feature_props["projected_location_xrowycol"]
-    search_center_xrowycol = proj_loc_xrowycol + search_offset
-    search_center_rc = sksicd.xrowycol_to_rowcol(
-        sicd_reader.metadata.xmltree, search_center_xrowycol
+    chip_center_xrowycol = np.asarray(chip_center_xrowycol)
+    chip_center_rc = sksicd.xrowycol_to_rowcol(
+        sicd_reader.metadata.xmltree, chip_center_xrowycol
     )
-    search_center_rc_int = np.round(search_center_rc).astype(np.int64)
-    search_center_rc_frac = search_center_rc - search_center_rc_int
+    chip_center_rc_int = np.round(chip_center_rc).astype(np.int64)
+    chip_center_rc_frac = chip_center_rc - chip_center_rc_int
 
     # TODO: handle chipped SICDs
-    start = search_center_rc_int - chip_size // 2
+    start = chip_center_rc_int - chip_size // 2
     end = start + chip_size
     imdata_ew = sksicd.ElementWrapper(sicd_reader.metadata.xmltree.find("{*}ImageData"))
     sicd_shape = [imdata_ew["NumRows"], imdata_ew["NumCols"]]
 
     if np.any(start < 0) or np.any(end > sicd_shape):
-        feature_props.update(valid=False, message="Chip extent not supported by image")
-        return
+        raise UnsupportedChipError("Chip extent not supported by image")
 
     chip, chipxml = sicd_reader.read_sub_image(*start, *end)
     # TODO: pixel type handling
@@ -160,33 +183,29 @@ def chip_and_measure(
     delta_kctr = np.array(
         [
             npp.polyval2d(
-                proj_loc_xrowycol[0],
-                proj_loc_xrowycol[1],
+                chip_center_xrowycol[0],
+                chip_center_xrowycol[1],
                 grid_ew[d].get("DeltaKCOAPoly", [[0.0]]),
             )
             for d in ("Row", "Col")
         ]
     )
-    rc_ss = [grid_ew[d]["SS"] for d in ("Row", "Col")]
+    ss_rc = [grid_ew[d]["SS"] for d in ("Row", "Col")]
     phase = [
         -delta_kctr[ndx]
         * (np.arange(chip.shape[ndx]) - chip.shape[ndx] // 2)
-        * rc_ss[ndx]
+        * ss_rc[ndx]
         for ndx in range(2)
     ]
 
     basebanded = chip.copy()
     basebanded *= np.exp(1j * 2 * np.pi * (phase[0][:, np.newaxis] + phase[1]))
 
-    ipr_measurements = _ipr.analyze_complex_ipr(
-        basebanded, search_center_rc_frac, search_dist=search_size_px
+    est_offset_rc, peak_power, iprparts = _ipr.estimate_peak(
+        basebanded, offset_rc=chip_center_rc_frac, search_dist=search_size_px
     )
-
-    feature_props["observed_location_offset_xrowycol"] = (
-        search_offset + ipr_measurements["offset_rc"] * rc_ss
-    )
-    feature_props["valid"] = True
-    feature_props["peak_power"] = ipr_measurements["peak_power"]
+    est_loc_xrowycol = chip_center_xrowycol + est_offset_rc * ss_rc
+    return est_loc_xrowycol, peak_power, iprparts
 
 
 def _get_all_features(geojson):

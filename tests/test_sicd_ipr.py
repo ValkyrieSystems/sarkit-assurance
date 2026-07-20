@@ -1,5 +1,6 @@
 import filecmp
 import json
+import re
 
 import numpy as np
 import sarkit.sicd as sksicd
@@ -74,6 +75,7 @@ def test_main(example_sicd_cf8, tmp_path):
     features_by_id = {f["id"]: f for f in ipr_results["features"]}
 
     assert features_by_id.keys() == expected_features_by_id.keys()
+    expected_plot_indices = []
     for fid, feat in features_by_id.items():
         expfeat = expected_features_by_id[fid]
         assert feat["geometry"] == expfeat["geometry"]
@@ -86,6 +88,15 @@ def test_main(example_sicd_cf8, tmp_path):
             assert feat["properties"]["message"] == "Too far outside ValidData"
         else:
             assert feat["properties"]["valid"]
+            expected_plot_indices.append(feat["properties"]["index"])
+
+    def get_feature_index(n):
+        return int(re.fullmatch(r"sicd_ipr(?P<idx>\d+).*\.html", n).group("idx"))
+
+    actual_plot_indices = [
+        get_feature_index(x.name) for x in outdir.glob("sicd_ipr*.html")
+    ]
+    assert actual_plot_indices == expected_plot_indices
 
 
 def test_main_unsupported_chip_extent(example_sicd_cf8, tmp_path):

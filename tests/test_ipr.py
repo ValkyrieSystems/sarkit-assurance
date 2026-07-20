@@ -7,7 +7,7 @@ from sarkit_assurance import _ipr
 
 
 @pytest.mark.parametrize("upsampled_offset", [(0, 0), (1, 0), (-2, 3), (0, -1)])
-def test_analyze_complex_ipr(upsampled_offset):
+def test_estimate_peak(upsampled_offset):
     upsampled_offset = np.asarray(upsampled_offset)
     upsampled_edge = 1024
     resamp_factor = 4
@@ -53,14 +53,14 @@ def test_analyze_complex_ipr(upsampled_offset):
         # otherwise, peak should be higher than observed due to quadcap
         assert_peak = assert_interp_peak
 
-    meas_0 = _ipr.analyze_complex_ipr(z_ds, (0.0, 0.0))
-    assert meas_0["offset_rc"] == pytest.approx(offset, abs=_ipr.UPSAMPLE_RATIO**2)
-    assert_peak(meas_0["peak_power"])
+    offset0, pk0, _ = _ipr.estimate_peak(z_ds, offset_rc=(0.0, 0.0))
+    assert offset0 == pytest.approx(offset, abs=_ipr.UPSAMPLE_RATIO**2)
+    assert_peak(pk0)
 
-    meas_offset = _ipr.analyze_complex_ipr(z_ds, offset)
-    assert meas_offset["offset_rc"] == pytest.approx(0.0, abs=_ipr.UPSAMPLE_RATIO**2)
-    assert_peak(meas_offset["peak_power"])
+    offset_off, pk_off, _ = _ipr.estimate_peak(z_ds, offset_rc=offset)
+    assert offset_off == pytest.approx(0.0, abs=_ipr.UPSAMPLE_RATIO**2)
+    assert_peak(pk_off)
 
     # shifting search window far away and limiting distance doesn't find peak
-    meas_bad = _ipr.analyze_complex_ipr(z_ds, (24.0, 24.0), search_dist=2)
-    assert meas_bad["peak_power"] < 0.5
+    _, pk_bad, _ = _ipr.estimate_peak(z_ds, offset_rc=(24.0, 24.0), search_dist=2)
+    assert pk_bad < 0.5
