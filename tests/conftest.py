@@ -445,10 +445,6 @@ def example_sicd(tmp_path_factory):
     ncols = int(sicd_etree.findtext("{*}ImageData/{*}NumCols"))
     pixel_type = sicd_etree.findtext("{*}ImageData/{*}PixelType")
     dtype = sksicd.PIXEL_TYPES[pixel_type]["dtype"]
-    arr = _random_array((nrows, ncols), dtype)
-    center_row = arr.shape[0] // 2
-    center_col = arr.shape[1] // 2
-    arr[center_row, center_col] = (arr["real"].max(), arr["imag"].max())
     with open(tmp_sicd, "wb") as f, sksicd.NitfWriter(f, sicd_meta) as w:
-        w.write_image(arr)
+        w.write_image(_random_array((nrows, ncols), dtype))
     yield tmp_sicd
