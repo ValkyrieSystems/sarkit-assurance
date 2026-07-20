@@ -1,11 +1,38 @@
 """Common utilities for IPR tools"""
 
+import base64
+import dataclasses
+import io
 import json
+from collections.abc import Sequence
 
 import numpy as np
+import plotly.colors
+import plotly.graph_objects as go
 import scipy.fft
+import scipy.signal
+from PIL import Image
+
+from . import _remap
 
 UPSAMPLE_RATIO = 16
+NEAR_PK_NYQ_SAMPLES_KEEP = 10
+FIG_WIDTH_PX = 350
+FIG_HEIGHT_PX = 325
+
+
+@dataclasses.dataclass
+class IprCut:
+    data: np.ndarray
+    x0: float
+    xss: float
+
+
+@dataclasses.dataclass
+class IprParts:
+    upsampled_chip: np.ndarray
+    vs_row: IprCut
+    vs_col: IprCut
 
 
 def _qcap(vals):
@@ -19,12 +46,12 @@ def _qcap(vals):
     return ndx + p, y_p
 
 
-def analyze_complex_ipr(chip, offset_rc, search_dist=None):
-    """TODO: docstring (signature may change with plotting/measurements)"""
+def estimate_peak(chip, *, offset_rc=(0.0, 0.0), search_dist=None):
+    """TODO: docstring"""
     if search_dist is None:
         search_dist = min(chip.shape) // 2 - 1
 
-    # Upsample
+    # Upsample and recenter
     chip_upsampled = _upsample_1d(
         _upsample_1d(chip, UPSAMPLE_RATIO, pixel_shift=offset_rc[1]).T,
         UPSAMPLE_RATIO,
@@ -36,7 +63,7 @@ def analyze_complex_ipr(chip, offset_rc, search_dist=None):
         int(chip_upsampled.shape[0] // 2 - search_dist * UPSAMPLE_RATIO),
         int(chip_upsampled.shape[1] // 2 - search_dist * UPSAMPLE_RATIO),
     )
-    sub_chip = chip_upsampled[
+    sub_chip_upsampled = chip_upsampled[
         sub_chip_start[0] : int(
             chip_upsampled.shape[0] // 2 + search_dist * UPSAMPLE_RATIO + 1
         ),
@@ -44,38 +71,50 @@ def analyze_complex_ipr(chip, offset_rc, search_dist=None):
             chip_upsampled.shape[1] // 2 + search_dist * UPSAMPLE_RATIO + 1
         ),
     ]
-    max_pixel = np.unravel_index(
-        np.argmax(np.abs(sub_chip)), sub_chip.shape
+    est_peak_rc_upsampled = np.unravel_index(
+        np.argmax(np.abs(sub_chip_upsampled)), sub_chip_upsampled.shape
     ) + np.array(sub_chip_start)
 
     # Upsample slices (again) to measure peak location
-    peak_phase = np.angle(chip_upsampled[tuple(max_pixel)])
+    peak_phase = np.angle(chip_upsampled[tuple(est_peak_rc_upsampled)])
     chip_upsampled *= np.exp(-1j * peak_phase)
     tgt_vs_rc = [
-        _upsample_1d(chip_upsampled[:, max_pixel[1]], UPSAMPLE_RATIO),
-        _upsample_1d(chip_upsampled[max_pixel[0], :], UPSAMPLE_RATIO),
+        _upsample_1d(chip_upsampled[:, est_peak_rc_upsampled[1]], UPSAMPLE_RATIO),
+        _upsample_1d(chip_upsampled[est_peak_rc_upsampled[0], :], UPSAMPLE_RATIO),
     ]
 
-    tgt_pixel = [x.size // 2 for x in tgt_vs_rc]
-    offset_rc = np.full((2,), np.nan)
-    peak_rc = np.full((2,), np.nan)
+    est_peak_rc = np.full((2,), np.nan)
+    peak_amp = np.full((2,), np.nan)
     for dim in range(2):
-        this_offset_upsampled, this_peak = _qcap(
-            np.abs(
-                tgt_vs_rc[dim][
-                    (max_pixel[dim] - 1) * UPSAMPLE_RATIO : (max_pixel[dim] + 1)
-                    * UPSAMPLE_RATIO
-                ]
-            )
+        near_pk_slice_upsampled2 = slice(
+            (est_peak_rc_upsampled[dim] - 1) * UPSAMPLE_RATIO,
+            (est_peak_rc_upsampled[dim] + 1) * UPSAMPLE_RATIO,
         )
-        offset_rc[dim] = (
-            this_offset_upsampled
-            - (tgt_pixel[dim] - (max_pixel[dim] - 1) * UPSAMPLE_RATIO)
-        ) / float(UPSAMPLE_RATIO**2)
-        peak_rc[dim] = this_peak
+        this_offset_upsampled2, this_peak = _qcap(
+            np.abs(tgt_vs_rc[dim][near_pk_slice_upsampled2])
+        )
+        est_peak_rc[dim] = (near_pk_slice_upsampled2.start + this_offset_upsampled2) / (
+            UPSAMPLE_RATIO**2
+        )
+        peak_amp[dim] = this_peak
 
-    retval = {"offset_rc": offset_rc, "peak_power": max(peak_rc) ** 2}
-    return retval
+    tgt_peak_rc = np.array([x.size // 2 for x in tgt_vs_rc]) / (UPSAMPLE_RATIO**2)
+    est_offset_rc = est_peak_rc - tgt_peak_rc
+    peak_power = max(peak_amp) ** 2
+    iprparts = IprParts(
+        upsampled_chip=chip_upsampled,
+        vs_row=IprCut(
+            data=tgt_vs_rc[0] / peak_amp[0],
+            x0=-est_peak_rc[0],
+            xss=UPSAMPLE_RATIO ** (-2),
+        ),
+        vs_col=IprCut(
+            data=tgt_vs_rc[1] / peak_amp[1],
+            x0=-est_peak_rc[1],
+            xss=UPSAMPLE_RATIO ** (-2),
+        ),
+    )
+    return est_offset_rc, peak_power, iprparts
 
 
 def _upsample_1d(image, factor, pixel_shift=0.0):
@@ -102,9 +141,23 @@ def _upsample_1d(image, factor, pixel_shift=0.0):
     return image
 
 
+def _downsample_1d(image, factor):
+    image = _fft_ops(
+        image.shape[-1],
+        image.shape[-1] // factor,
+        1.0 / image.shape[-1],
+        -1,
+        True,
+        True,
+        image,
+    )
+    image = _fft_ops(image.shape[-1], image.shape[-1], 1.0, 1, True, True, image)
+    return image
+
+
 def _fft_ops(n_fft, n_out, scale, sign, fold_in, fold_out, image):
     """Performs 1D FFT or IFFT of an array, along with scaling, sizing,
-        and fold-in/fold-out operations using the scipy fft pack as the
+        and fold-in/fold-out operations using the scipy fft as the
         FFT "engine".
 
     Parameters
@@ -171,3 +224,243 @@ class NdArrJSONEncoder(json.JSONEncoder):
         if isinstance(o, np.ndarray):
             return o.tolist()
         return super().default(o)
+
+
+def linear_range_slice(x0, xss, min, max):
+    low_index = int(np.ceil((min - x0) / xss))
+    past_high_index = int(np.ceil((max - x0) / xss))
+    return slice(low_index, past_high_index)
+
+
+def _get_power_db(sig):
+    amp = np.abs(sig)
+    return np.where(amp > 0, 20.0 * np.log10(amp), np.nan)
+
+
+def create_b64_image(arr, colormap=None):
+    """Create trace containing b64 binary string for increased performance"""
+    # TODO: is this meaningfully better than a heatmap?
+    pil_img = Image.fromarray(arr)
+    if colormap is not None:
+        palette = np.asarray(
+            [
+                plotly.colors.convert_to_RGB_255(x)
+                for x in plotly.colors.sample_colorscale(
+                    colormap, np.linspace(0, 1, 256, endpoint=True), colortype="tuple"
+                )
+            ]
+        ).ravel()
+        pil_img = pil_img.convert(mode="P")
+        pil_img.putpalette(palette.tolist(), "RGB")
+    prefix = "data:image/png;base64,"
+    with io.BytesIO() as stream:
+        pil_img.save(stream, format="png")
+        base64_string = prefix + base64.b64encode(stream.getvalue()).decode("utf-8")
+
+    # Don't include z in hovertext as original intensity is not preserved
+    im_trace = go.Image(source=base64_string, hovertemplate="%{x}, %{y}")
+    return im_trace
+
+
+def create_tir_trace(chip_data):
+    remapped_chip = _remap.simple_log_remap(
+        np.abs(chip_data) ** 2,
+        cut_low_frac=0.0,
+        cut_high_frac=0.0,
+        min_low_relative=1e-10,
+    )
+    return create_b64_image(remapped_chip)
+
+
+def create_sf_amp_phase_traces(chip_data, sgn):
+    to_sf_func = scipy.fft.fft2 if sgn < 0 else scipy.fft.ifft2
+    kchip = scipy.fft.fftshift(to_sf_func(scipy.fft.ifftshift(chip_data)))
+
+    kchip_amp = _remap.scale_to_byte(np.abs(kchip))
+    kchip_phase = _remap.scale_to_byte(np.angle(kchip))
+
+    return (create_b64_image(x, colormap="viridis") for x in (kchip_amp, kchip_phase))
+
+
+def create_sf_power_trace(iprslice: IprCut, bw: float):
+    pwr_db = _get_power_db(iprslice.data)
+    in_band_med = np.median(
+        pwr_db[linear_range_slice(iprslice.x0, iprslice.xss, -bw / 2, bw / 2)]
+    )
+    return go.Scatter(
+        y=pwr_db - in_band_med, x0=iprslice.x0, dx=iprslice.xss, line_color="blue"
+    )
+
+
+def create_sf_phase_trace(iprslice: IprCut, bw: float):
+    phase_deg = np.full(iprslice.data.shape, np.nan)
+    inband = linear_range_slice(iprslice.x0, iprslice.xss, -bw / 2, bw / 2)
+    phase_deg[inband] = scipy.signal.detrend(
+        np.rad2deg(np.angle(iprslice.data[inband]))
+    )
+    return go.Scatter(y=phase_deg, x0=iprslice.x0, dx=iprslice.xss, line_color="blue")
+
+
+def plot_ipr(
+    iprparts: IprParts,
+    spacing_rc: Sequence[float],
+    bw_rc: Sequence[float],
+    sgn: float,
+) -> go.Figure:
+    # TODO: docstring/interface - may change when more measurements are added (e.g. pass spatial freq cuts in)
+    centered_chip = _downsample_1d(
+        _downsample_1d(iprparts.upsampled_chip, UPSAMPLE_RATIO).T, UPSAMPLE_RATIO
+    ).T
+
+    # downselect row/col cut - only keep portion near peak, convert to nyquist samples
+    def get_nyqsamples_near_pk(iprcut, ss, bw):
+        xss_nyqsamp = iprcut.xss * ss * bw
+        x0_nyqsamp = iprcut.x0 * ss * bw
+        keep_slice = linear_range_slice(
+            x0_nyqsamp,
+            xss_nyqsamp,
+            -NEAR_PK_NYQ_SAMPLES_KEEP / 2,
+            NEAR_PK_NYQ_SAMPLES_KEEP / 2,
+        )
+        x0_nyqsamp_near_pk = x0_nyqsamp + keep_slice.start * xss_nyqsamp
+        return IprCut(
+            data=iprcut.data[keep_slice], x0=x0_nyqsamp_near_pk, xss=xss_nyqsamp
+        )
+
+    vs_row_near_pk = get_nyqsamples_near_pk(iprparts.vs_row, spacing_rc[0], bw_rc[0])
+    vs_col_near_pk = get_nyqsamples_near_pk(iprparts.vs_col, spacing_rc[1], bw_rc[1])
+
+    # Spectral analysis
+    # TODO: add other spectral measurements
+    def get_spatfreq_cut(x, n_keep, ss):
+        k_x = _fft_ops(x.size, n_keep, 1.0 / x.size, sgn, True, True, x)
+        k_xss = 1 / (n_keep * ss)
+        k_x0 = -k_xss * (n_keep // 2)
+        return IprCut(data=k_x, x0=k_x0, xss=k_xss)
+
+    vs_krow = get_spatfreq_cut(
+        iprparts.vs_row.data, centered_chip.shape[0], spacing_rc[0]
+    )
+    vs_kcol = get_spatfreq_cut(
+        iprparts.vs_col.data, centered_chip.shape[1], spacing_rc[1]
+    )
+
+    plot_titles: tuple[str, ...] = (
+        "Target Image Response (TIR)",
+        "",
+        "Spatial Frequency (SF) Amplitude",
+        "Spatial Frequency (SF) Phase",
+    )
+    for arrow in ("\N{LEFT RIGHT ARROW}", "\N{UP DOWN ARROW}"):
+        plot_titles += (
+            f"TIR {arrow} Power Slice",
+            f"TIR {arrow} Phase Slice",
+            f"SF {arrow} Power Slice",
+            f"SF {arrow} Phase Slice",
+        )
+
+    rows = 3
+    cols = 4
+    fig = go.Figure().set_subplots(
+        rows=rows,
+        cols=cols,
+        subplot_titles=plot_titles,
+        horizontal_spacing=0.25 / cols,
+    )
+    fig.update_layout(
+        showlegend=False, width=cols * FIG_WIDTH_PX, height=rows * FIG_HEIGHT_PX
+    )
+
+    def get_rc_phase(sig):
+        return np.rad2deg(np.angle(sig * np.exp(-0.5j * np.pi))) + 90
+
+    fig.add_trace(trace=create_tir_trace(centered_chip), row=1, col=1)
+    # TODO: figure out multiple axes for 2d traces
+    # TODO: add table trace
+    kchip_amp, kchip_phase = create_sf_amp_phase_traces(centered_chip, sgn)
+    fig.add_trace(trace=kchip_amp, row=1, col=3)
+    fig.add_trace(trace=kchip_phase, row=1, col=4)
+
+    # rc/krc
+    for cut, k_cut, bw, subplot_row in zip(
+        (vs_row_near_pk, vs_col_near_pk), (vs_krow, vs_kcol), bw_rc, (3, 2)
+    ):
+        fig.add_scatter(
+            y=_get_power_db(cut.data),
+            x0=cut.x0,
+            dx=cut.xss,
+            line_color="blue",
+            row=subplot_row,
+            col=1,
+        )
+        fig.add_scatter(
+            y=get_rc_phase(cut.data),
+            x0=cut.x0,
+            dx=cut.xss,
+            line_color="blue",
+            row=subplot_row,
+            col=2,
+        )
+
+        fig.add_trace(trace=create_sf_power_trace(k_cut, bw), row=subplot_row, col=3)
+        fig.add_vline(x=-bw / 2, line_color="red", row=subplot_row, col=3)
+        fig.add_vline(x=bw / 2, line_color="red", row=subplot_row, col=3)
+
+        fig.add_trace(trace=create_sf_phase_trace(k_cut, bw), row=subplot_row, col=4)
+        fig.add_vline(x=-bw / 2, line_color="red", row=subplot_row, col=4)
+        fig.add_vline(x=bw / 2, line_color="red", row=subplot_row, col=4)
+
+    # Customize axes
+    # TODO: likely to change with custom axes labels/scaling
+    fig.update_xaxes(title_text="Δycol", row=1, col=1)
+    fig.update_yaxes(title_text="Δxrow", row=1, col=1)
+
+    for col in (3, 4):
+        fig.update_xaxes(title_text="ΔKcol", row=1, col=col)
+        fig.update_yaxes(title_text="ΔKrow", row=1, col=col)
+
+    # Update x-axes
+    fig.update_xaxes(title_text="Δycol (Nyquist Samples)", range=[-4, 4], row=2, col=1)
+    fig.update_xaxes(title_text="Δycol (Nyquist Samples)", range=[-4, 4], row=2, col=2)
+    fig.update_xaxes(
+        title_text="ΔKcol (cyc/m)",
+        range=np.array([-0.5, 0.5]) / spacing_rc[1],
+        row=2,
+        col=3,
+    )
+    fig.update_xaxes(
+        title_text="ΔKcol (cyc/m)",
+        range=np.array([-0.5, 0.5]) / spacing_rc[1],
+        row=2,
+        col=4,
+    )
+
+    fig.update_xaxes(title_text="Δxrow (Nyquist Samples)", range=[-4, 4], row=3, col=1)
+    fig.update_xaxes(title_text="Δxrow (Nyquist Samples)", range=[-4, 4], row=3, col=2)
+    fig.update_xaxes(
+        title_text="ΔKrow (cyc/m)",
+        range=np.array([-0.5, 0.5]) / spacing_rc[0],
+        row=3,
+        col=3,
+    )
+    fig.update_xaxes(
+        title_text="ΔKrow (cyc/m)",
+        range=np.array([-0.5, 0.5]) / spacing_rc[0],
+        row=3,
+        col=4,
+    )
+
+    # Update y-axes
+    for subplot_row in (2, 3):
+        fig.update_yaxes(
+            title_text="Power (dB)", range=[-30, 3], row=subplot_row, col=1
+        )
+        fig.update_yaxes(
+            title_text="Phase (deg)", range=[-20, 200], row=subplot_row, col=2
+        )
+        fig.update_yaxes(title_text="Power (dB)", range=[-5, 5], row=subplot_row, col=3)
+        fig.update_yaxes(
+            title_text="Phase (deg)", range=[-200, 200], row=subplot_row, col=4
+        )
+
+    return fig

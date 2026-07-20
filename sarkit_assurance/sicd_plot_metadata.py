@@ -334,7 +334,7 @@ class Plotter(_plot_metadata.Plotter):
             chip[: rchip.shape[0], : rchip.shape[1]] = rchip
             fchip = np.abs(np.fft.fftshift(np.fft.fft2(chip))) ** 2
             fchip = np.log(fchip.clip(fchip.max() / 1e5, None))
-            fchip = _remap._scale_to_byte(fchip)
+            fchip = _remap.scale_to_byte(fchip)
             rc = dict(row=(index // 3 + 1), col=(index % 3 + 2))
             fig.add_heatmap(
                 z=fchip,
@@ -456,7 +456,7 @@ class Plotter(_plot_metadata.Plotter):
             tmp = self.sample_data.real**2 + self.sample_data.imag**2
             tmp = np.log10(tmp.clip(tmp.max() / 1e6, None))
             tmp = downsample_all_dims(tmp, self.downsample_factor)
-            tmp = _remap._scale_to_byte(tmp)
+            tmp = _remap.scale_to_byte(tmp)
             downsamp_offset = (self.downsample_factor - 1) / 2.0
             fig.add_heatmap(
                 z=tmp,

@@ -3,7 +3,7 @@ import numpy.typing as npt
 import sarkit.sicd as sksicd
 
 
-def _scale_to_byte(data):
+def scale_to_byte(data):
     min_val = data.min()
     max_val = data.max()
     return ((data - min_val) * 256 / (max_val - min_val)).clip(0, 255).astype(np.uint8)
@@ -38,7 +38,7 @@ def simple_log_remap(data, cut_low_frac=0.05, cut_high_frac=0.0, min_low_relativ
     high_cutoff = np.quantile(data, 1.0 - cut_high_frac)
 
     data = np.log10(data.clip(low_cutoff, high_cutoff))
-    data = _scale_to_byte(data)
+    data = scale_to_byte(data)
     return data
 
 
