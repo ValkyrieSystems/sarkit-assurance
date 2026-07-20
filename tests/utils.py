@@ -21,6 +21,7 @@ def _run_aiohttp_server(app, loop, ready_event, stop_event, msg_queue):
 
     # Cleanup when stop event is set
     loop.run_until_complete(runner.cleanup())
+    loop.stop()
     loop.close()
 
 

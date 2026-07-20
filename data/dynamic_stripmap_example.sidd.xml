@@ -1,0 +1,504 @@
+<SIDD xmlns:ism="urn:us:gov:ic:ism:13" xmlns:si="urn:SICommon:1.0" xmlns:sfa="urn:SFA:1.2.0" xmlns="urn:SIDD:2.0.0">
+  <ProductCreation>
+    <ProcessorInformation>
+      <Application>Valkyrie Systems Sage | sar_common_kit 2.1.3.0</Application>
+      <ProcessingDateTime>2026-06-18T16:40:28Z</ProcessingDateTime>
+      <Site>None</Site>
+    </ProcessorInformation>
+    <Classification ism:DESVersion="13" ism:ISMCATCESVersion="1" ism:resourceElement="true" ism:compliesWith="USGov" ism:createDate="2026-06-18" ism:classification="U" ism:ownerProducer="USA"/>
+    <ProductName>Detected Image</ProductName>
+    <ProductClass>Detected Image</ProductClass>
+  </ProductCreation>
+  <Display>
+    <PixelType>MONO8I</PixelType>
+    <NumBands>1</NumBands>
+    <NonInteractiveProcessing band="1">
+      <ProductGenerationOptions>
+        <DataRemapping>
+          <LUTName>UNKNOWN</LUTName>
+          <Predefined>
+            <DatabaseName>UNKNOWN</DatabaseName>
+          </Predefined>
+        </DataRemapping>
+      </ProductGenerationOptions>
+      <RRDS>
+        <DownsamplingMethod>AVERAGE</DownsamplingMethod>
+        <AntiAlias>
+          <FilterName>PLACEHOLDER</FilterName>
+          <FilterKernel>
+            <Predefined>
+              <DatabaseName>BILINEAR</DatabaseName>
+            </Predefined>
+          </FilterKernel>
+          <Operation>CONVOLUTION</Operation>
+        </AntiAlias>
+        <Interpolation>
+          <FilterName>PLACEHOLDER</FilterName>
+          <FilterKernel>
+            <Predefined>
+              <DatabaseName>BILINEAR</DatabaseName>
+            </Predefined>
+          </FilterKernel>
+          <Operation>CORRELATION</Operation>
+        </Interpolation>
+      </RRDS>
+    </NonInteractiveProcessing>
+    <InteractiveProcessing band="1">
+      <GeometricTransform>
+        <Scaling>
+          <AntiAlias>
+            <FilterName>PLACEHOLDER</FilterName>
+            <FilterKernel>
+              <Predefined>
+                <DatabaseName>BILINEAR</DatabaseName>
+              </Predefined>
+            </FilterKernel>
+            <Operation>CONVOLUTION</Operation>
+          </AntiAlias>
+          <Interpolation>
+            <FilterName>PLACEHOLDER</FilterName>
+            <FilterKernel>
+              <Predefined>
+                <DatabaseName>BILINEAR</DatabaseName>
+              </Predefined>
+            </FilterKernel>
+            <Operation>CORRELATION</Operation>
+          </Interpolation>
+        </Scaling>
+        <Orientation>
+          <ShadowDirection>RIGHT</ShadowDirection>
+        </Orientation>
+      </GeometricTransform>
+      <SharpnessEnhancement>
+        <ModularTransferFunctionCompensation>
+          <FilterName>PLACEHOLDER</FilterName>
+          <FilterKernel>
+            <Predefined>
+              <DatabaseName>BILINEAR</DatabaseName>
+            </Predefined>
+          </FilterKernel>
+          <Operation>CONVOLUTION</Operation>
+        </ModularTransferFunctionCompensation>
+      </SharpnessEnhancement>
+      <DynamicRangeAdjustment>
+        <AlgorithmType>NONE</AlgorithmType>
+        <BandStatsSource>1</BandStatsSource>
+      </DynamicRangeAdjustment>
+    </InteractiveProcessing>
+  </Display>
+  <GeoData>
+    <EarthModel>WGS_84</EarthModel>
+    <ImageCorners>
+      <ICP index="1:FRFC">
+        <si:Lat>0.0027541531523356698</si:Lat>
+        <si:Lon>0.023302696754893146</si:Lon>
+      </ICP>
+      <ICP index="2:FRLC">
+        <si:Lat>-0.010608334596286715</si:Lat>
+        <si:Lon>0.02096230287581843</si:Lon>
+      </ICP>
+      <ICP index="3:LRLC">
+        <si:Lat>-0.0027528188032815972</si:Lat>
+        <si:Lon>-0.023290301943095393</si:Lon>
+      </ICP>
+      <ICP index="4:LRFC">
+        <si:Lat>0.010609668946407792</si:Lat>
+        <si:Lon>-0.02094990806362964</si:Lon>
+      </ICP>
+    </ImageCorners>
+    <ValidData size="32">
+      <Vertex index="1">
+        <si:Lat>-0.0072665656267579225</si:Lat>
+        <si:Lon>0.02153939022848336</si:Lon>
+      </Vertex>
+      <Vertex index="2">
+        <si:Lat>-0.008936062670570361</si:Lat>
+        <si:Lon>0.02124573362250509</si:Lon>
+      </Vertex>
+      <Vertex index="3">
+        <si:Lat>-0.010605500390481998</si:Lat>
+        <si:Lon>0.020952050695219885</si:Lon>
+      </Vertex>
+      <Vertex index="4">
+        <si:Lat>-0.009620812047233883</si:Lat>
+        <si:Lon>0.015410620624147046</si:Lon>
+      </Vertex>
+      <Vertex index="5">
+        <si:Lat>-0.008641297591215688</si:Lat>
+        <si:Lon>0.009885330019320748</si:Lon>
+      </Vertex>
+      <Vertex index="6">
+        <si:Lat>-0.007659319833737585</si:Lat>
+        <si:Lon>0.004359852811371225</si:Lon>
+      </Vertex>
+      <Vertex index="7">
+        <si:Lat>-0.006679572380253055</si:Lat>
+        <si:Lon>-0.0011662314827583086</si:Lon>
+      </Vertex>
+      <Vertex index="8">
+        <si:Lat>-0.005697369628484749</si:Lat>
+        <si:Lon>-0.006692452234447499</si:Lon>
+      </Vertex>
+      <Vertex index="9">
+        <si:Lat>-0.004714408059221785</si:Lat>
+        <si:Lon>-0.012236031084823101</si:Lon>
+      </Vertex>
+      <Vertex index="10">
+        <si:Lat>-0.0037319877282469874</si:Lat>
+        <si:Lon>-0.017762900425513508</si:Lon>
+      </Vertex>
+      <Vertex index="11">
+        <si:Lat>-0.0027518120568980524</si:Lat>
+        <si:Lon>-0.023290285242115724</si:Lon>
+      </Vertex>
+      <Vertex index="12">
+        <si:Lat>-0.0010831383855437057</si:Lat>
+        <si:Lon>-0.022992364833872413</si:Lon>
+      </Vertex>
+      <Vertex index="13">
+        <si:Lat>0.000585595561340593</si:Lat>
+        <si:Lon>-0.02269447535538752</si:Lon>
+      </Vertex>
+      <Vertex index="14">
+        <si:Lat>0.0022574004085985596</si:Lat>
+        <si:Lon>-0.022413409851791893</si:Lon>
+      </Vertex>
+      <Vertex index="15">
+        <si:Lat>0.003926254666175781</si:Lat>
+        <si:Lon>-0.022115580611624462</si:Lon>
+      </Vertex>
+      <Vertex index="16">
+        <si:Lat>0.005595169251019152</si:Lat>
+        <si:Lon>-0.021817782289050874</si:Lon>
+      </Vertex>
+      <Vertex index="17">
+        <si:Lat>0.007267153936343966</si:Lat>
+        <si:Lon>-0.02153680311285494</si:Lon>
+      </Vertex>
+      <Vertex index="18">
+        <si:Lat>0.00893618893647172</si:Lat>
+        <si:Lon>-0.021239065009643097</si:Lon>
+      </Vertex>
+      <Vertex index="19">
+        <si:Lat>0.01060528431573559</si:Lat>
+        <si:Lon>-0.020941357812186992</si:Lon>
+      </Vertex>
+      <Vertex index="20">
+        <si:Lat>0.009625862965416631</si:Lat>
+        <si:Lon>-0.015418200948436862</si:Lon>
+      </Vertex>
+      <Vertex index="21">
+        <si:Lat>0.008644193990655661</si:Lat>
+        <si:Lon>-0.009895557339269466</si:Lon>
+      </Vertex>
+      <Vertex index="22">
+        <si:Lat>0.007661984283646714</si:Lat>
+        <si:Lon>-0.004356214749047647</si:Lon>
+      </Vertex>
+      <Vertex index="23">
+        <si:Lat>0.006680527984740674</si:Lat>
+        <si:Lon>0.0011657857195941444</si:Lon>
+      </Vertex>
+      <Vertex index="24">
+        <si:Lat>0.005698553085357493</si:Lat>
+        <si:Lon>0.00670443657037251</si:Lon>
+      </Vertex>
+      <Vertex index="25">
+        <si:Lat>0.004717323982473052</si:Lat>
+        <si:Lon>0.012225700374410333</si:Lon>
+      </Vertex>
+      <Vertex index="26">
+        <si:Lat>0.003735599070533812</si:Lat>
+        <si:Lon>0.01776356425918178</si:Lon>
+      </Vertex>
+      <Vertex index="27">
+        <si:Lat>0.0027546129339942275</si:Lat>
+        <si:Lon>0.023283995051053885</si:Lon>
+      </Vertex>
+      <Vertex index="28">
+        <si:Lat>0.0010847598354953524</si:Lat>
+        <si:Lon>0.022990494895348573</si:Lon>
+      </Vertex>
+      <Vertex index="29">
+        <si:Lat>-0.0005850338256404191</si:Lat>
+        <si:Lon>0.02269696838421223</si:Lon>
+      </Vertex>
+      <Vertex index="30">
+        <si:Lat>-0.002254768068287221</si:Lat>
+        <si:Lon>0.022403415523064567</si:Lon>
+      </Vertex>
+      <Vertex index="31">
+        <si:Lat>-0.00392444291130862</si:Lat>
+        <si:Lon>0.022109836317310852</si:Lon>
+      </Vertex>
+      <Vertex index="32">
+        <si:Lat>-0.005594058373549729</si:Lat>
+        <si:Lon>0.021816230772345846</si:Lon>
+      </Vertex>
+    </ValidData>
+  </GeoData>
+  <Measurement>
+    <PlaneProjection>
+      <ReferencePoint>
+        <si:ECEF>
+          <si:X>6378137.0</si:X>
+          <si:Y>0.0</si:Y>
+          <si:Z>0.0</si:Z>
+        </si:ECEF>
+        <si:Point>
+          <si:Row>1876.5</si:Row>
+          <si:Col>1949.5</si:Col>
+        </si:Point>
+      </ReferencePoint>
+      <SampleSpacing>
+        <si:Row>1.3332014692990084</si:Row>
+        <si:Col>0.3849002248189264</si:Col>
+      </SampleSpacing>
+      <TimeCOAPoly order1="2" order2="1">
+        <si:Coef exponent1="0" exponent2="0">2.9260218347788576</si:Coef>
+        <si:Coef exponent1="0" exponent2="1">6.431570285625602e-11</si:Coef>
+        <si:Coef exponent1="1" exponent2="0">0.0008050835192183461</si:Coef>
+        <si:Coef exponent1="1" exponent2="1">2.7084645274628225e-09</si:Coef>
+        <si:Coef exponent1="2" exponent2="0">-5.900958999234125e-09</si:Coef>
+        <si:Coef exponent1="2" exponent2="1">-6.101463460984584e-14</si:Coef>
+      </TimeCOAPoly>
+      <ProductPlane>
+        <RowUnitVector>
+          <si:X>0.0</si:X>
+          <si:Y>-0.984807753012208</si:Y>
+          <si:Z>0.17364817766693044</si:Z>
+        </RowUnitVector>
+        <ColUnitVector>
+          <si:X>0.0</si:X>
+          <si:Y>-0.17364817766693044</si:Y>
+          <si:Z>-0.984807753012208</si:Z>
+        </ColUnitVector>
+      </ProductPlane>
+    </PlaneProjection>
+    <PixelFootprint>
+      <si:Row>3752</si:Row>
+      <si:Col>3898</si:Col>
+    </PixelFootprint>
+    <ARPPoly>
+      <si:X order1="5">
+        <si:Coef exponent1="0">7227646.759549694</si:Coef>
+        <si:Coef exponent1="1">374.42455234012476</si:Coef>
+        <si:Coef exponent1="2">-3.835358133207895</si:Coef>
+        <si:Coef exponent1="3">-6.552502665783445e-05</si:Coef>
+        <si:Coef exponent1="4">3.404315333674488e-07</si:Coef>
+        <si:Coef exponent1="5">-5.030158902701771e-11</si:Coef>
+      </si:X>
+      <si:Y order1="5">
+        <si:Coef exponent1="0">278003.47331668483</si:Coef>
+        <si:Coef exponent1="1">-7579.546782047618</si:Coef>
+        <si:Coef exponent1="2">-0.1475108709188983</si:Coef>
+        <si:Coef exponent1="3">0.0013406315748486551</si:Coef>
+        <si:Coef exponent1="4">1.2872498693822001e-08</si:Coef>
+        <si:Coef exponent1="5">-7.109166547921094e-11</si:Coef>
+      </si:Y>
+      <si:Z order1="5">
+        <si:Coef exponent1="0">1452066.2988558973</si:Coef>
+        <si:Coef exponent1="1">-412.6240156701312</si:Coef>
+        <si:Coef exponent1="2">-0.7705396974786124</si:Coef>
+        <si:Coef exponent1="3">7.312348353655834e-05</si:Coef>
+        <si:Coef exponent1="4">6.812909199826881e-08</si:Coef>
+        <si:Coef exponent1="5">9.471944267803908e-13</si:Coef>
+      </si:Z>
+    </ARPPoly>
+    <ValidData size="32">
+      <Vertex index="1">
+        <si:Row>1</si:Row>
+        <si:Col>2924</si:Col>
+      </Vertex>
+      <Vertex index="2">
+        <si:Row>1</si:Row>
+        <si:Col>3411</si:Col>
+      </Vertex>
+      <Vertex index="3">
+        <si:Row>1</si:Row>
+        <si:Col>3898</si:Col>
+      </Vertex>
+      <Vertex index="4">
+        <si:Row>471</si:Row>
+        <si:Col>3897</si:Col>
+      </Vertex>
+      <Vertex index="5">
+        <si:Row>939</si:Row>
+        <si:Col>3898</si:Col>
+      </Vertex>
+      <Vertex index="6">
+        <si:Row>1408</si:Row>
+        <si:Col>3897</si:Col>
+      </Vertex>
+      <Vertex index="7">
+        <si:Row>1876</si:Row>
+        <si:Col>3898</si:Col>
+      </Vertex>
+      <Vertex index="8">
+        <si:Row>2345</si:Row>
+        <si:Col>3897</si:Col>
+      </Vertex>
+      <Vertex index="9">
+        <si:Row>2815</si:Row>
+        <si:Col>3898</si:Col>
+      </Vertex>
+      <Vertex index="10">
+        <si:Row>3283</si:Row>
+        <si:Col>3897</si:Col>
+      </Vertex>
+      <Vertex index="11">
+        <si:Row>3752</si:Row>
+        <si:Col>3898</si:Col>
+      </Vertex>
+      <Vertex index="12">
+        <si:Row>3752</si:Row>
+        <si:Col>3411</si:Col>
+      </Vertex>
+      <Vertex index="13">
+        <si:Row>3751</si:Row>
+        <si:Col>2924</si:Col>
+      </Vertex>
+      <Vertex index="14">
+        <si:Row>3752</si:Row>
+        <si:Col>2436</si:Col>
+      </Vertex>
+      <Vertex index="15">
+        <si:Row>3752</si:Row>
+        <si:Col>1949</si:Col>
+      </Vertex>
+      <Vertex index="16">
+        <si:Row>3751</si:Row>
+        <si:Col>1462</si:Col>
+      </Vertex>
+      <Vertex index="17">
+        <si:Row>3752</si:Row>
+        <si:Col>975</si:Col>
+      </Vertex>
+      <Vertex index="18">
+        <si:Row>3752</si:Row>
+        <si:Col>488</si:Col>
+      </Vertex>
+      <Vertex index="19">
+        <si:Row>3751</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="20">
+        <si:Row>3283</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="21">
+        <si:Row>2815</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="22">
+        <si:Row>2345</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="23">
+        <si:Row>1877</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="24">
+        <si:Row>1407</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="25">
+        <si:Row>939</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="26">
+        <si:Row>470</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="27">
+        <si:Row>2</si:Row>
+        <si:Col>1</si:Col>
+      </Vertex>
+      <Vertex index="28">
+        <si:Row>2</si:Row>
+        <si:Col>488</si:Col>
+      </Vertex>
+      <Vertex index="29">
+        <si:Row>2</si:Row>
+        <si:Col>975</si:Col>
+      </Vertex>
+      <Vertex index="30">
+        <si:Row>2</si:Row>
+        <si:Col>1462</si:Col>
+      </Vertex>
+      <Vertex index="31">
+        <si:Row>2</si:Row>
+        <si:Col>1949</si:Col>
+      </Vertex>
+      <Vertex index="32">
+        <si:Row>2</si:Row>
+        <si:Col>2436</si:Col>
+      </Vertex>
+    </ValidData>
+  </Measurement>
+  <ExploitationFeatures>
+    <Collection identifier="SyntheticCore">
+      <Information>
+        <SensorName>Synthetic</SensorName>
+        <RadarMode>
+          <si:ModeType>DYNAMIC STRIPMAP</si:ModeType>
+        </RadarMode>
+        <CollectionDateTime>2026-06-18T16:40:13Z</CollectionDateTime>
+        <CollectionDuration>5.884979742446707</CollectionDuration>
+        <Resolution>
+          <si:Range>0.49954848544825375</si:Range>
+          <si:Azimuth>2.081949509464121</si:Azimuth>
+        </Resolution>
+      </Information>
+      <Geometry>
+        <Azimuth>9.999996601310666</Azimuth>
+        <Slope>31.195145804724365</Slope>
+        <Squint>76.58969731585975</Squint>
+        <Graze>30.00001178691887</Graze>
+        <Tilt>8.980926150142668</Tilt>
+        <DopplerConeAngle>79.99994086785587</DopplerConeAngle>
+      </Geometry>
+      <Phenomenology>
+        <Shadow>
+          <si:Angle>90.00000339868934</si:Angle>
+          <si:Magnitude>1.732049984686999</si:Magnitude>
+        </Shadow>
+        <Layover>
+          <si:Angle>-72.45896489348004</si:Angle>
+          <si:Magnitude>0.6055057372390235</si:Magnitude>
+        </Layover>
+        <MultiPath>-85.48177958835488</MultiPath>
+        <GroundTrack>13.14968389351762</GroundTrack>
+      </Phenomenology>
+    </Collection>
+    <Product>
+      <Resolution>
+        <si:Row>2.107790565304446</si:Row>
+        <si:Col>0.5768290345231214</si:Col>
+      </Resolution>
+      <Ellipticity>3.6559480365219708</Ellipticity>
+      <Polarization>
+        <TxPolarizationProc>V</TxPolarizationProc>
+        <RcvPolarizationProc>V</RcvPolarizationProc>
+      </Polarization>
+      <North>-80.0</North>
+    </Product>
+  </ExploitationFeatures>
+  <ProductProcessing>
+    <ProcessingModule>
+      <ModuleName name="inscription"/>
+      <ModuleParameter name="krange">fixed</ModuleParameter>
+      <ModuleParameter name="kazimuth">sliding</ModuleParameter>
+    </ProcessingModule>
+    <ProcessingModule>
+      <ModuleName name="Valkyrie Systems Sage | sar_common_kit 2.1.3.0 @ 2026-06-18T16:40:14Z"/>
+    </ProcessingModule>
+    <ProcessingModule>
+      <ModuleName name="polar_deterministic_phase"/>
+      <ModuleParameter name="phase_contiguous">true</ModuleParameter>
+      <ModuleParameter name="quadratic_type">none</ModuleParameter>
+      <ModuleParameter name="linear_type">one_dimensional</ModuleParameter>
+      <ModuleParameter name="constant_type">one_dimensional</ModuleParameter>
+    </ProcessingModule>
+  </ProductProcessing>
+</SIDD>

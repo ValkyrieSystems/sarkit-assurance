@@ -9,6 +9,7 @@ import sarkit.cphd as skcphd
 import sarkit.crsd as skcrsd
 import sarkit.sicd as sksicd
 import sarkit.sidd as sksidd
+import sarkit.wgs84
 import scipy.constants
 from PIL import Image
 
@@ -173,6 +174,33 @@ def make_cphd(tmp_path_factory, sig_format):
     return tmp_cphd
 
 
+@pytest.fixture(scope="session")
+def example_dynamic_stripmap_sidd(tmp_path_factory):
+    sidd_xml = DATAPATH / "dynamic_stripmap_example.sidd.xml"
+    sidd_xml_etree = lxml.etree.parse(sidd_xml)
+    sidd_array = np.asarray(_image(sidd_xml_etree).convert(mode="L"))
+
+    sec = sksidd.NitfSecurityFields(clas="U")
+    write_metadata = sksidd.NitfMetadata(
+        file_header_part=sksidd.NitfFileHeaderPart(ostaid="UNKNOWN", security=sec)
+    )
+    write_metadata.images.extend(
+        [
+            sksidd.NitfProductImageMetadata(
+                xmltree=sidd_xml_etree,
+                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
+                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
+            )
+        ]
+    )
+
+    tmp_sidd = tmp_path_factory.mktemp("data") / "dynamic_stripmap.sidd"
+    with tmp_sidd.open("wb") as file:
+        with sksidd.NitfWriter(file, write_metadata) as writer:
+            writer.write_image(0, sidd_array)
+    yield tmp_sidd
+
+
 @pytest.fixture(scope="session", params=["CI2", "CI4", "CF8"])
 def example_cphd(tmp_path_factory, request):
     yield make_cphd(tmp_path_factory, request.param)
@@ -228,6 +256,19 @@ def multichan_cphd(tmp_path_factory):
     yield tmp_cphd
 
 
+def _polyfit2d(x, y, z, order1, order2):
+    """Fits 2d polynomials to data."""
+    fx = x.flatten()
+    fy = y.flatten()
+    fz = z.flatten()
+    if not fx.shape[0] == fy.shape[0] == fz.shape[0]:
+        raise ValueError("Expected x, y, z to have same leading dimension size")
+    vander = npp.polyvander2d(fx, fy, (order1, order2))
+    scales = np.sqrt(np.square(vander).sum(0))
+    coefs_flat = (np.linalg.lstsq(vander / scales, fz, rcond=-1)[0].T / scales).T
+    return coefs_flat.reshape(order1 + 1, order2 + 1)
+
+
 def _image(sidd_xmltree):
     xml_helper = sksidd.XmlHelper(sidd_xmltree)
     rows = xml_helper.load("./{*}Measurement/{*}PixelFootprint/{*}Row")
@@ -244,15 +285,37 @@ def multi_sidd(tmp_path_factory):
 
     # MONO8I
     basis_etree0 = lxml.etree.parse(sidd_xml)
+    sidd_ew = sksidd.ElementWrapper(basis_etree0.getroot())
+
+    ## Generate Polynomial Projection
+    pts = np.stack(
+        np.meshgrid(
+            np.linspace(0, sidd_ew["Measurement"]["PixelFootprint"][0], 11),
+            np.linspace(0, sidd_ew["Measurement"]["PixelFootprint"][1], 11),
+        ),
+        axis=-1,
+    )
+    llh = sarkit.wgs84.cartesian_to_geodetic(sksidd.pixel_to_ecef(basis_etree0, pts))
+    sidd_ew["Measurement"]["PolynomialProjection"] = {
+        "ReferencePoint": sidd_ew["Measurement"]["PlaneProjection"]["ReferencePoint"],
+        "RowColToLat": _polyfit2d(pts[..., 0], pts[..., 1], llh[..., 0], 5, 5),
+        "RowColToLon": _polyfit2d(pts[..., 0], pts[..., 1], llh[..., 1], 5, 5),
+        "RowColToAlt": _polyfit2d(pts[..., 0], pts[..., 1], llh[..., 2], 5, 5),
+        "LatLonToRow": _polyfit2d(llh[..., 0], llh[..., 1], pts[..., 0], 5, 5),
+        "LatLonToCol": _polyfit2d(llh[..., 0], llh[..., 1], pts[..., 1], 5, 5),
+    }
+    del sidd_ew["Measurement"]["PlaneProjection"]
+
     basis_array0 = np.asarray(_image(basis_etree0).convert(mode="L"))
     expected_img_modes.append("L")
 
     # MONO16I
+    def exp_8bit_to_16bit(data):
+        return (2.0 ** (data / (255 / 16.0)) - 1).astype(np.uint16)
+
     basis_etree1 = lxml.etree.parse(sidd_xml)
     basis_etree1.find("./{*}Display/{*}PixelType").text = "MONO16I"
-    basis_array1 = (
-        np.asarray(_image(basis_etree1).convert(mode="L")).astype(np.uint16) << 4
-    )
+    basis_array1 = exp_8bit_to_16bit(np.asarray(_image(basis_etree1).convert(mode="L")))
     expected_img_modes.append("I;16")
 
     def _set_3_bands(tree):
@@ -322,7 +385,7 @@ def multi_sidd(tmp_path_factory):
     basis_etree5 = lxml.etree.parse(sidd_xml)
     basis_array5 = np.asarray(_image(basis_etree5).convert(mode="L"))
     basis_etree5.find("./{*}Display/{*}PixelType").text = "MONO8LU"
-    lookup_table5 = np.arange(256, dtype=np.uint16) << 4
+    lookup_table5 = exp_8bit_to_16bit(np.arange(256, dtype=np.uint16))
     expected_img_modes.append("I;16")
 
     sec = sksidd.NitfSecurityFields(clas="U")
