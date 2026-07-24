@@ -540,10 +540,11 @@ class Plotter(_plot_metadata.Plotter):
                     [0, 0],
                 ]
             )
+            + grid_first
             - 0.5
         )
         iarp_ls = grid["IARPLocation"]
-        grid_coords = (grid_indices + grid_first - iarp_ls) * grid_spacing
+        grid_coords = (grid_indices - iarp_ls) * grid_spacing
         iarp_coord = [0, 0]
 
         # Plot grid extent
@@ -631,7 +632,7 @@ class Plotter(_plot_metadata.Plotter):
             ia_coords = np.stack((im_poly.y, im_poly.x), axis=-1)
         else:
             ia_coords = np.stack((im_rect.y, im_rect.x), axis=-1)
-        ia_indices = ia_coords / grid_spacing + iarp_ls - grid_first
+        ia_indices = ia_coords / grid_spacing + iarp_ls
         fig.add_trace(
             go.Scatter(
                 x=ia_indices[:, 1],
