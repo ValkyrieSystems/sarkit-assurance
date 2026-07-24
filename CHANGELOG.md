@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `joint_chip_to_html`
 - `crsd_plot_metadata`
 
 ### Fixed

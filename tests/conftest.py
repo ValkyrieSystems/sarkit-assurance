@@ -442,6 +442,33 @@ def multi_sidd(tmp_path_factory):
     yield tmp_sidd
 
 
+@pytest.fixture(scope="session")
+def example_sidd(tmp_path_factory):
+    sidd_xml = DATAPATH / "example-sicd-1.4.0-matching-sidd.xml"
+    sidd_xml_etree = lxml.etree.parse(sidd_xml)
+    sidd_array = np.asarray(_image(sidd_xml_etree).convert(mode="L"))
+
+    sec = sksidd.NitfSecurityFields(clas="U")
+    write_metadata = sksidd.NitfMetadata(
+        file_header_part=sksidd.NitfFileHeaderPart(ostaid="UNKNOWN", security=sec)
+    )
+    write_metadata.images.extend(
+        [
+            sksidd.NitfProductImageMetadata(
+                xmltree=sidd_xml_etree,
+                im_subheader_part=sksidd.NitfImSubheaderPart(security=sec),
+                de_subheader_part=sksidd.NitfDeSubheaderPart(security=sec),
+            ),
+        ]
+    )
+
+    tmp_sidd = tmp_path_factory.mktemp("data") / "example.sidd"
+    with tmp_sidd.open("wb") as file:
+        with sksidd.NitfWriter(file, write_metadata) as writer:
+            writer.write_image(0, sidd_array)
+    yield tmp_sidd
+
+
 @pytest.fixture
 def sicd_xml():
     return good_sicd_xml_path
