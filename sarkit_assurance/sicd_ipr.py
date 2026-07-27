@@ -162,16 +162,16 @@ def chip_and_estimate_peak(
         )
     chip_size = np.array([chip_edge_px, chip_edge_px])
     chip_center_xrowycol = np.asarray(chip_center_xrowycol)
-    chip_center_rc = sksicd.xrowycol_to_rowcol(
+    chip_center_rcglob = sksicd.xrowycol_to_rowcol(
         sicd_reader.metadata.xmltree, chip_center_xrowycol
     )
+    imdata_ew = sksicd.ElementWrapper(sicd_reader.metadata.xmltree.find("{*}ImageData"))
+    chip_center_rc = chip_center_rcglob - (imdata_ew["FirstRow"], imdata_ew["FirstCol"])
     chip_center_rc_int = np.round(chip_center_rc).astype(np.int64)
     chip_center_rc_frac = chip_center_rc - chip_center_rc_int
 
-    # TODO: handle chipped SICDs
     start = chip_center_rc_int - chip_size // 2
     end = start + chip_size
-    imdata_ew = sksicd.ElementWrapper(sicd_reader.metadata.xmltree.find("{*}ImageData"))
     sicd_shape = [imdata_ew["NumRows"], imdata_ew["NumCols"]]
 
     if np.any(start < 0) or np.any(end > sicd_shape):
