@@ -197,3 +197,49 @@ def test_main_smartopen(example_sicd_cf8, tmp_path):
     assert filecmp.cmp(
         outdir / "sicd_ipr.json", outdir2 / "sicd_ipr.json", shallow=False
     )
+
+
+def test_main_chipped_sicd(example_sicd_cf8, tmp_path):
+    geo = make_feature_collection_geojson(example_sicd_cf8, include_bad=False)
+
+    target_geojson = tmp_path / "targets.geojson"
+    target_geojson.write_text(json.dumps(geo))
+
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    sicd_ipr.main([str(example_sicd_cf8), str(target_geojson), str(outdir)])
+    outfile = outdir / "sicd_ipr.json"
+    assert outfile.is_file()
+    ipr_results = json.loads(outfile.read_text())
+
+    tgtprops = ipr_results["features"][1]["properties"]
+    assert tgtprops["valid"]
+    tgt_xrowycol = np.array(tgtprops["projected_location_xrowycol"])
+
+    chipsize = sicd_ipr.NOM_CHIP_EDGE_PX + 10
+    chip_sicd = tmp_path / "chip.sicd"
+    with example_sicd_cf8.open("rb") as f, sksicd.NitfReader(f) as r:
+        tgt_rcglob = sksicd.xrowycol_to_rowcol(r.metadata.xmltree, tgt_xrowycol)
+        chip, chipxml = r.read_sub_image(
+            int(tgt_rcglob[0] - chipsize // 2),
+            int(tgt_rcglob[1] - chipsize // 2),
+            int(tgt_rcglob[0] + chipsize // 2),
+            int(tgt_rcglob[1] + chipsize // 2),
+        )
+        assert chip.shape == (chipsize, chipsize)
+        r.metadata.xmltree = chipxml
+        with chip_sicd.open("wb") as fw, sksicd.NitfWriter(fw, r.metadata) as w:
+            w.write_image(chip)
+
+    chipoutdir = tmp_path / "out_chip"
+    chipoutdir.mkdir()
+    sicd_ipr.main([str(chip_sicd), str(target_geojson), str(chipoutdir)])
+    outfile = chipoutdir / "sicd_ipr.json"
+    assert outfile.is_file()
+    ipr_results_chip = json.loads(outfile.read_text())
+
+    # not in chip
+    assert not ipr_results_chip["features"][0]["properties"]["valid"]
+
+    # chip results match global
+    assert ipr_results_chip["features"][1] == ipr_results["features"][1]
