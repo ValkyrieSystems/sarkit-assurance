@@ -1,6 +1,7 @@
 import filecmp
 import json
 import pathlib
+import re
 
 import lxml.etree
 import numpy as np
@@ -89,6 +90,7 @@ def test_main(multichan_cphd, tmp_path, include_channel_imagearea):
     features_by_id = {f["id"]: f for f in ipr_results["features"]}
 
     assert features_by_id.keys() == expected_features_by_id.keys()
+    expected_plot_indices = []
     for fid, feat in features_by_id.items():
         expfeat = expected_features_by_id[fid]
         assert feat["geometry"] == expfeat["geometry"]
@@ -98,6 +100,15 @@ def test_main(multichan_cphd, tmp_path, include_channel_imagearea):
             assert feat["properties"]["message"] == "Too far outside ImageArea"
         else:
             assert feat["properties"]["valid"]
+            expected_plot_indices.append(feat["properties"]["index"])
+
+    def get_feature_index(n):
+        return int(re.fullmatch(r"cphd_ipr(?P<idx>\d+).*\.html", n).group("idx"))
+
+    actual_plot_indices = [
+        get_feature_index(x.name) for x in outdir.glob("cphd_ipr*.html")
+    ]
+    assert actual_plot_indices == expected_plot_indices
 
 
 def test_main_smartopen(multichan_cphd, tmp_path):
