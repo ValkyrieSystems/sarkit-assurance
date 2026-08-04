@@ -94,6 +94,13 @@ def analyze(
 
     ss_rc = [ew["Grid"][d]["SS"] for d in ("Row", "Col")]
     bw_rc = [ew["Grid"][d]["ImpRespBW"] for d in ("Row", "Col")]
+    labels_rc = {
+        "RGAZIM": ("Range", "Azimuth"),
+        "RGZERO": ("Range", "Azimuth"),
+        "XRGYCR": ("Range", "Cross Range"),
+        "XCTYAT": ("Cross Track", "Along Track"),
+        "PLANE": ("U", "V"),
+    }.get(ew["Grid"]["Type"], ("\N{UP DOWN ARROW}", "\N{LEFT RIGHT ARROW}"))
 
     search_offset = np.zeros(2)
     search_sizes = search_sizes_px or (None,)
@@ -119,10 +126,13 @@ def analyze(
                         observed_location_offset_xrowycol=offset_xrowycol,
                         peak_power=peak_power,
                     )
-
-                    fig = _ipr.plot_ipr(
-                        iprparts, ss_rc, bw_rc, ew["Grid"]["Row"]["Sgn"]
+                    iprparts.chip = _ipr.downsample_chip(iprparts.chip)
+                    customize_spatial_axes(iprparts, search_offset, ss_rc, labels_rc)
+                    k_iprparts = _ipr.create_spectral_chip(
+                        iprparts, ew["Grid"]["Row"]["Sgn"]
                     )
+                    customize_spatialfreq_axes(k_iprparts, ss_rc, labels_rc)
+                    fig = _ipr.plot_ipr(iprparts, k_iprparts, ss_rc, bw_rc)
                     figstem = f"sicd_ipr{feature['properties']['index']}"
                     figtitle = (
                         f"SICD IPR Analysis - Feature #{feature['properties']['index']}"
@@ -138,7 +148,7 @@ def analyze(
         if not this_iter_offsets:
             # no targets were found
             break
-        search_offset = np.median(this_iter_offsets)
+        search_offset = np.median(this_iter_offsets, axis=0)
 
     (outdir / "sicd_ipr.json").write_text(
         json.dumps(geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
@@ -206,6 +216,45 @@ def chip_and_estimate_peak(
     )
     est_loc_xrowycol = chip_center_xrowycol + est_offset_rc * ss_rc
     return est_loc_xrowycol, peak_power, iprparts
+
+
+def customize_spatial_axes(
+    iprparts: _ipr.IprParts,
+    search_offset_rc: np.ndarray,
+    spacing_rc: Sequence[float],
+    gridlabels_rc: tuple[str, str],
+):
+    # reference chip to projected location, scale by Row/Col spacing, change out generic labels
+    iprparts.chip.row.rescale(
+        spacing_rc[0], name=f"{gridlabels_rc[0]}: Δxrow", units="m"
+    )
+    iprparts.chip.row.x0 += search_offset_rc[0]
+    iprparts.chip.col.rescale(
+        spacing_rc[1], name=f"{gridlabels_rc[1]}: Δycol", units="m"
+    )
+    iprparts.chip.col.x0 += search_offset_rc[1]
+
+    # Change out generic labels
+    iprparts.vs_row.domain.name = f"{gridlabels_rc[0]}: Δxrow"
+    iprparts.vs_col.domain.name = f"{gridlabels_rc[1]}: Δycol"
+
+
+def customize_spatialfreq_axes(
+    k_iprparts: _ipr.IprParts,
+    spacing_rc: Sequence[float],
+    gridlabels_rc: tuple[str, str],
+):
+    # Scale to sampling frequency, change out generic labels
+    k_iprparts.chip.row.rescale(1 / spacing_rc[0], units="cyc/m")
+    k_iprparts.chip.col.rescale(1 / spacing_rc[1], units="cyc/m")
+    k_iprparts.vs_row.domain.rescale(1 / spacing_rc[0], units="cyc/m")
+    k_iprparts.vs_col.domain.rescale(1 / spacing_rc[1], units="cyc/m")
+    k_iprparts.vs_row.domain.name = (
+        f"{gridlabels_rc[0]} Spatial Freq: " + k_iprparts.vs_row.domain.name
+    )
+    k_iprparts.vs_col.domain.name = (
+        f"{gridlabels_rc[1]} Spatial Freq: " + k_iprparts.vs_col.domain.name
+    )
 
 
 def _get_all_features(geojson):
