@@ -194,11 +194,15 @@ def analyze(
             observed_dopplerfreq_offset_hz=est_offset_rc[1] * spacing_rc[1],
             peak_power=peak_power,
         )
+        iprparts.chip = _ipr.downsample_chip(iprparts.chip)
+        customize_spatial_axes(iprparts, spacing_rc)
+        k_iprparts = _ipr.create_spectral_chip(iprparts, sgn)
+        customize_spatialfreq_axes(k_iprparts, spacing_rc)
         fig = _ipr.plot_ipr(
             iprparts,
+            k_iprparts,
             spacing_rc,
             bw_rc,
-            sgn,
         )
         figstem = f"cphd_ipr{feature['properties']['index']}"
         figtitle = f"CPHD IPR Analysis - Feature #{feature['properties']['index']}"
@@ -396,6 +400,25 @@ def compute_oneway_gain_and_phase_for_vectors(
 
     # TODO: ask about r**2/ref_range losses
     return g_a + g_e, p_a + p_e
+
+
+def customize_spatial_axes(iprparts: _ipr.IprParts, spacing_rc: Sequence[float]):
+    # scale by Row/Col spacing, change out generic labels
+    ns_per_s = 1e9
+    iprparts.chip.row.rescale(spacing_rc[0] * ns_per_s, name="Range: ΔTOA", units="ns")
+    iprparts.chip.col.rescale(spacing_rc[1], name="Azimuth: Δfdop", units="Hz")
+
+    # Change out generic labels
+    iprparts.vs_row.domain.name = "Range: ΔTOA"
+    iprparts.vs_col.domain.name = "Azimuth: Δfdop"
+
+
+def customize_spatialfreq_axes(k_iprparts: _ipr.IprParts, spacing_rc: Sequence[float]):
+    # Scale to sampling frequency, change out generic labels
+    k_iprparts.chip.row.rescale(1 / spacing_rc[0], name="RF Freq", units="Hz")
+    k_iprparts.chip.col.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
+    k_iprparts.vs_row.domain.rescale(1 / spacing_rc[0], name="RF Freq", units="Hz")
+    k_iprparts.vs_col.domain.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
 
 
 def _get_all_features(geojson):
