@@ -58,6 +58,13 @@ class IprParts:
     vs_col: Cut
 
 
+@dataclasses.dataclass
+class TargetContext:
+    geoms: list[tuple[str, np.ndarray]]
+    row_label: str
+    col_label: str
+
+
 def _qcap(vals):
     """Do a quadratic cap sub-sample max interpolation."""
     ndx = np.argmax(vals)
@@ -382,6 +389,8 @@ def plot_ipr(
     k_iprparts: IprParts,
     spacing_rc: Sequence[float],
     bw_rc: Sequence[float],
+    table_info: list[tuple[str, str]],
+    target_context: TargetContext,
 ) -> go.Figure:
     # TODO: docstring/interface - may change when more measurements are added (e.g. pass spatial freq cuts in)
 
@@ -412,9 +421,10 @@ def plot_ipr(
 
     plot_titles: tuple[str, ...] = (
         "Target Image Response (TIR)<br>Relative to Projected Location",
-        "",
+        "Target Location",
         "Spatial Frequency (SF) Amplitude",
         "Spatial Frequency (SF) Phase",
+        "",
     )
     for arrow in ("\N{LEFT RIGHT ARROW}", "\N{UP DOWN ARROW}"):
         plot_titles += (
@@ -425,12 +435,17 @@ def plot_ipr(
         )
 
     rows = 3
-    cols = 4
+    cols = 5
     fig = go.Figure().set_subplots(
         rows=rows,
         cols=cols,
         subplot_titles=plot_titles,
-        horizontal_spacing=0.4 / cols,
+        horizontal_spacing=0.32 / cols,
+        specs=[
+            ([{"type": "xy"}] * (cols - 1)) + [{"type": "table", "rowspan": rows}],
+            ([{"type": "xy"}] * (cols - 1)) + [None],
+            ([{"type": "xy"}] * (cols - 1)) + [None],
+        ],
     )
     fig.update_layout(
         showlegend=False,
@@ -442,7 +457,17 @@ def plot_ipr(
         return np.rad2deg(np.angle(sig * np.exp(-0.5j * np.pi))) + 90
 
     fig.add_trace(trace=create_tir_trace(iprparts.chip), row=1, col=1)
-    # TODO: add table trace
+
+    for name, points in target_context.geoms:
+        fig.add_scatter(
+            x=points.T[1],
+            y=points.T[0],
+            name=name,
+            hoverlabel_namelength=-1,
+            row=1,
+            col=2,
+        )
+
     kchip_amp, kchip_phase = create_sf_amp_phase_traces(k_iprparts.chip)
     fig.add_trace(trace=kchip_amp, row=1, col=3)
     fig.add_trace(trace=kchip_phase, row=1, col=4)
@@ -479,10 +504,24 @@ def plot_ipr(
         fig.add_vline(x=-bw / 2, line_color="red", row=subplot_row, col=4)
         fig.add_vline(x=bw / 2, line_color="red", row=subplot_row, col=4)
 
+    # Add table after other traces due to plotly bug: https://github.com/plotly/plotly.py/issues/3424
+    fig.add_table(
+        cells_values=[[x[0] for x in table_info], [x[1] for x in table_info]],
+        row=1,
+        col=5,
+        cells_font_size=11,
+        cells_align="left",
+    )
+
     # Customize axes
     fig.update_xaxes(title_text=iprparts.chip.col.get_label(), row=1, col=1)
     fig.update_yaxes(
         title_text=iprparts.chip.row.get_label(), autorange="reversed", row=1, col=1
+    )
+
+    fig.update_xaxes(title_text=target_context.col_label, row=1, col=2)
+    fig.update_yaxes(
+        title_text=target_context.row_label, autorange="reversed", row=1, col=2
     )
 
     for col in (3, 4):

@@ -102,6 +102,27 @@ def analyze(
         "PLANE": ("U", "V"),
     }.get(ew["Grid"]["Type"], ("\N{UP DOWN ARROW}", "\N{LEFT RIGHT ARROW}"))
 
+    sicd_table_info = get_table_info(ew)
+    image_extent_rc = shapely.box(
+        -0.5, -0.5, ew["ImageData"]["NumRows"] - 0.5, ew["ImageData"]["NumCols"] - 0.5
+    )
+    image_extent_rc = shapely.get_coordinates(image_extent_rc.exterior) + [
+        ew["ImageData"]["FirstRow"],
+        ew["ImageData"]["FirstCol"],
+    ]
+    image_extent_xrowycol = sksicd.rowcol_to_xrowycol(sicd_xmltree, image_extent_rc)
+
+    context_geoms = [
+        ("Image Extent", image_extent_xrowycol),
+    ]
+    if "ValidData" in ew["ImageData"]:
+        vdata_rc = ew["ImageData"]["ValidData"]
+        vdata_rc = shapely.buffer(shapely.Polygon(vdata_rc), 0.5)
+        vdata_xrowycol = sksicd.rowcol_to_xrowycol(
+            sicd_xmltree, shapely.get_coordinates(vdata_rc)
+        )
+        context_geoms.append(("ValidData", vdata_xrowycol))
+
     search_offset = np.zeros(2)
     search_sizes = search_sizes_px or (None,)
     for iter_index, search_size_px in enumerate(search_sizes):
@@ -132,7 +153,40 @@ def analyze(
                         iprparts, ew["Grid"]["Row"]["Sgn"]
                     )
                     customize_spatialfreq_axes(k_iprparts, ss_rc, labels_rc)
-                    fig = _ipr.plot_ipr(iprparts, k_iprparts, ss_rc, bw_rc)
+                    target_info = [
+                        ("Target Peak", f"{10 * np.log10(peak_power):.6f} dB"),
+                        ("", ""),
+                        ("xrow Offset", f"{offset_xrowycol[0]:.6f} m"),
+                        ("Krow BW", f"{bw_rc[0]:.6f} cyc/m"),
+                        ("Offset x BW", f"{bw_rc[0] * offset_xrowycol[0]:.6f}"),
+                        ("", ""),
+                        ("ycol Offset", f"{offset_xrowycol[1]:.6f} m"),
+                        ("Kcol BW", f"{bw_rc[1]:.6f} cyc/m"),
+                        ("Offset x BW", f"{bw_rc[1] * offset_xrowycol[1]:.6f}"),
+                        ("", ""),
+                    ]
+                    this_target_context = _ipr.TargetContext(
+                        geoms=[
+                            (
+                                "Projected Target",
+                                np.atleast_2d(
+                                    feature["properties"]["projected_location_xrowycol"]
+                                ),
+                            ),
+                            ("Estimated Target", np.atleast_2d(est_loc_xrowycol)),
+                        ]
+                        + context_geoms,
+                        row_label=f"{labels_rc[0]}: xrow (m)",
+                        col_label=f"{labels_rc[1]}: ycol (m)",
+                    )
+                    fig = _ipr.plot_ipr(
+                        iprparts,
+                        k_iprparts,
+                        ss_rc,
+                        bw_rc,
+                        table_info=target_info + sicd_table_info,
+                        target_context=this_target_context,
+                    )
                     figstem = f"sicd_ipr{feature['properties']['index']}"
                     figtitle = (
                         f"SICD IPR Analysis - Feature #{feature['properties']['index']}"
@@ -255,6 +309,20 @@ def customize_spatialfreq_axes(
     k_iprparts.vs_col.domain.name = (
         f"{gridlabels_rc[1]} Spatial Freq: " + k_iprparts.vs_col.domain.name
     )
+
+
+def get_table_info(ew: sksicd.ElementWrapper) -> list[tuple[str, str]]:
+    info = [
+        ("Grid/Type", ew["Grid"]["Type"]),
+        ("Sgn", ew["Grid"]["Row"]["Sgn"]),
+    ]
+    for rc, arrow in [("Col", "\N{LEFT RIGHT ARROW}"), ("Row", "\N{UP DOWN ARROW}")]:
+        info.append(
+            (f"{arrow} window", ew["Grid"][rc].get("WgtType", {}).get("WindowName"))
+        )
+    for fname in ("STBeamComp", "ImageBeamComp", "AzAutofocus", "RgAutofocus"):
+        info.append((fname, ew["ImageFormation"][fname]))
+    return info
 
 
 def _get_all_features(geojson):
