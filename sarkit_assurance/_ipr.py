@@ -458,7 +458,7 @@ def plot_ipr(
 
     fig.add_trace(trace=create_tir_trace(iprparts.chip), row=1, col=1)
 
-    for name, points in target_context.geoms:
+    for name, points in reversed(target_context.geoms):
         fig.add_scatter(
             x=points.T[1],
             y=points.T[0],

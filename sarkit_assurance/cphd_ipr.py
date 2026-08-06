@@ -13,6 +13,7 @@ import numpy.polynomial.polynomial as npp
 import numpy.typing as npt
 import sarkit.cphd as skcphd
 import sarkit.wgs84
+import sarkit_processing.remocomp as skp_remo
 import scipy.fft
 import shapely
 
@@ -58,8 +59,8 @@ def ecef_to_scene_transform(
 
     # Finds step size in scene coords that produces 1-meter change in ECEF
     ecef_cal_points = skcphd.iac_to_ecf(cphd_xmltree, scene_cal_points)
-    step_x /= np.linalg.norm(ecef_cal_points[1, :] - ecef_cal_points[0, :])
-    step_y /= np.linalg.norm(ecef_cal_points[2, :] - ecef_cal_points[0, :])
+    step_x /= float(np.linalg.norm(ecef_cal_points[1, :] - ecef_cal_points[0, :]))
+    step_y /= float(np.linalg.norm(ecef_cal_points[2, :] - ecef_cal_points[0, :]))
 
     # Pick new calibration points based on new step sizes
     scene_cal_points = np.array([[0.0, 0.0], [step_x, 0.0], [0.0, step_y]])
@@ -299,23 +300,17 @@ def extract_chips(
 
         start_vector = bisect.bisect_right(ref_times, t_start)  # leftmost > t_start
         past_stop_vector = bisect.bisect_left(ref_times, t_end)  # rightmost < t_end + 1
-
-        # TODO: remocomp will replace this through antenna gain correction
-        these_pvps = all_pvps[start_vector:past_stop_vector]
-        if len(these_pvps) == 0:
+        if past_stop_vector - start_vector < 1:
             yield None
             continue
 
-        this_signal = cphd_reader.read_signal(
-            ch_id, start_vector=start_vector, stop_vector=past_stop_vector
+        this_signal, these_pvps = skp_remo.remocomp_cphd_chan(
+            cphd_reader,
+            ch_id,
+            tgt_ecef,
+            start_vector=start_vector,
+            stop_vector=past_stop_vector,
         )
-        if this_signal.dtype.names is None:
-            assert this_signal.dtype.newbyteorder("=") == np.dtype("c8")
-            this_signal = this_signal.astype(np.complex64, copy=False)
-        else:
-            this_signal = this_signal["real"].astype(np.float32) + 1j * this_signal[
-                "imag"
-            ].astype(np.float32)
 
         # Correct for antenna gain
         tx_gain, tx_phase = compute_oneway_gain_and_phase_for_vectors(
