@@ -106,23 +106,38 @@ def ecef_to_scene_transform(
     raise RuntimeError(f"Failed to converge to {max_err} after {max_iters} iterations")
 
 
+def _get_imagearea_poly(imgarea_ew, *, use_polygon=True):
+    region = shapely.box(*imgarea_ew["X1Y1"], *imgarea_ew["X2Y2"])
+    if use_polygon and (poly := imgarea_ew.get("Polygon", None)) is not None:
+        region = region.intersection(shapely.Polygon(poly))
+    return region
+
+
 def get_channel_image_area(
     cphd_xmltree: lxml.etree.ElementTree, ch_id: str
 ) -> shapely.Polygon:
     # TODO: move to sarkit
     ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
-
-    def get_imagearea_poly(imgarea_ew):
-        region = shapely.box(*imgarea_ew["X1Y1"], *imgarea_ew["X2Y2"])
-        if (poly := imgarea_ew.get("Polygon", None)) is not None:
-            region = region.intersection(shapely.Polygon(poly))
-        return region
-
-    ia_poly = get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
+    ia_poly = _get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
     chan_param_ew = ew["Channel"].find("Parameters", Identifier=ch_id)
     if "ImageArea" in chan_param_ew:
-        ia_poly = get_imagearea_poly(chan_param_ew["ImageArea"])
+        ia_poly = _get_imagearea_poly(chan_param_ew["ImageArea"])
     return ia_poly
+
+
+def get_scene_image_area(cphd_xmltree: lxml.etree.ElementTree) -> shapely.Polygon:
+    # TODO: move to sarkit
+    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
+    return _get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
+
+
+def get_extended_image_area(
+    cphd_xmltree: lxml.etree.ElementTree,
+) -> shapely.Polygon | None:
+    # TODO: move to sarkit
+    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
+    imgarea_ew = ew["SceneCoordinates"].get("ExtendedArea", None)
+    return None if imgarea_ew is None else _get_imagearea_poly(imgarea_ew)
 
 
 def analyze(
@@ -169,7 +184,24 @@ def analyze(
         features_to_analyze.append(feature)
         target_locs.append((coord_ecef, coord_iac))
 
-    sgn = int(cphd_reader.metadata.xmltree.findtext("{*}Global/{*}SGN"))
+    sgn = int(cphd_xmltree.findtext("{*}Global/{*}SGN"))
+    cphd_table_info = [
+        ("Ch_ID", ch_id),
+        ("Global/SGN", str(sgn)),
+    ]
+    context_geoms = [
+        ("Channel Image Area", shapely.get_coordinates(imagearea_iac.exterior)),
+    ]
+    scene_imagearea = get_scene_image_area(cphd_xmltree)
+    if not shapely.equals(imagearea_iac, scene_imagearea):
+        context_geoms.append(
+            ("Scene Image Area", shapely.get_coordinates(scene_imagearea))
+        )
+    extended_imagearea = get_extended_image_area(cphd_xmltree)
+    if extended_imagearea is not None:
+        context_geoms.append(
+            ("Extended Image Area", shapely.get_coordinates(extended_imagearea))
+        )
     for feature, (chip, spacing_rc, bw_rc) in zip(
         features_to_analyze,
         extract_chips(
@@ -188,21 +220,46 @@ def analyze(
         est_offset_rc, peak_power, iprparts = _ipr.estimate_peak(
             chip, search_dist=search_size_px
         )
+        est_offset_si = est_offset_rc * spacing_rc  # in SI units (0: s, 1: Hz)
         feature["properties"].update(
             valid=True,
-            observed_toa_offset_sec=est_offset_rc[0] * spacing_rc[0],
-            observed_dopplerfreq_offset_hz=est_offset_rc[1] * spacing_rc[1],
+            observed_toa_offset_sec=est_offset_si[0],
+            observed_dopplerfreq_offset_hz=est_offset_si[1],
             peak_power=peak_power,
         )
         iprparts.chip = _ipr.downsample_chip(iprparts.chip)
         customize_spatial_axes(iprparts, spacing_rc)
         k_iprparts = _ipr.create_spectral_chip(iprparts, sgn)
         customize_spatialfreq_axes(k_iprparts, spacing_rc)
+        target_info = [
+            ("Target Peak", f"{10 * np.log10(peak_power):.6f} dB"),
+            ("", ""),
+            ("TOA Offset", f"{est_offset_si[0] * 1e9:.6f} nsec"),
+            ("RF BW", f"{bw_rc[0] * 1e-6:.6f} MHz"),
+            ("Offset x BW", f"{bw_rc[0] * est_offset_si[0]:.6f}"),
+            ("", ""),
+            ("fdop Offset", f"{est_offset_si[1]:.6f} m"),
+            ("T Dwell", f"{bw_rc[1]:.6f} sec"),
+            ("Offset x Dwell", f"{bw_rc[1] * est_offset_si[1]:.6f}"),
+            ("", ""),
+        ]
         fig = _ipr.plot_ipr(
             iprparts,
             k_iprparts,
             spacing_rc,
             bw_rc,
+            target_info + cphd_table_info,
+            _ipr.TargetContext(
+                geoms=[
+                    (
+                        "Projected Target",
+                        np.atleast_2d(feature["properties"]["projected_location_iac"]),
+                    )
+                ]
+                + context_geoms,
+                row_label="IAX (m)",
+                col_label="IAY (m)",
+            ),
         )
         figstem = f"cphd_ipr{feature['properties']['index']}"
         figtitle = f"CPHD IPR Analysis - Feature #{feature['properties']['index']}"
