@@ -11,6 +11,7 @@ import numpy.polynomial.polynomial as npp
 import numpy.typing as npt
 import sarkit.sicd as sksicd
 import sarkit.wgs84
+import sarkit_processing.sicd_pixel_type as skp_sicdpx
 import shapely
 
 from . import _ipr, _sicd_utils, names
@@ -271,7 +272,7 @@ def chip_and_estimate_peak(
         raise UnsupportedChipError("Chip extent not supported by image")
 
     chip, chipxml = sicd_reader.read_sub_image(*start, *end)
-    # TODO: pixel type handling
+    chip, chipxml = skp_sicdpx.sicd_as_re32f_im32f(chip, chipxml)
     grid_ew = sksicd.ElementWrapper(chipxml.find("{*}Grid"))
     delta_kctr = np.array(
         [
