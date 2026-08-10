@@ -4,7 +4,7 @@ import argparse
 import bisect
 import json
 import pathlib
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 import lxml.etree
@@ -149,9 +149,21 @@ def analyze(
     *,
     search_size_px: None | int = None,
 ) -> None:
-    """Perform IPR analysis of CPHD targets.
+    """Generate and write CPHD IPR analysis artifacts to a directory for targets described in a GeoJSON.
 
-    TODO: finish docstring
+    Parameters
+    ----------
+    cphd_reader : sarkit.cphd.Reader
+        Open CPHD reader object
+    geojson : dict of {str : any}
+        Parsed GeoJSON object containing 3D point features to analyze
+    ch_id : str
+        Identifier of CPHD channel to analyze
+    outdir : pathlib.Path
+        Path to write output files to
+    search_size_px : int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        If ``None``, a single iteration using default-sized chips is performed.
     """
 
     # Find target image coordinates and ensure they are (nearly) within ImageArea
@@ -159,18 +171,12 @@ def analyze(
     imagearea_iac = get_channel_image_area(cphd_xmltree, ch_id)
     padded_imagearea_iac = imagearea_iac.buffer(NUM_IAC_PAD, quad_segs=4)
     features_to_analyze = []
-    target_locs = []  # tuple of (ecef, iac)
     for index, feature in enumerate(_get_all_features(geojson)):
         feature_props: dict[str, Any] = {"index": index}
         if (orig_properties := feature.get("properties")) is not None:
             feature_props["original_properties"] = orig_properties
         feature["properties"] = feature_props
-
-        coordinates = np.asarray(feature["geometry"]["coordinates"], dtype=np.float64)
-        if feature["geometry"]["type"] != "Point" or coordinates.shape != (3,):
-            raise ValueError("Only 3D Point features are supported")
-
-        coord_llh = [coordinates[1], coordinates[0], coordinates[2]]
+        coord_llh = _ipr.get_feature_point(feature)
         coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
         try:
             coord_iac = ecef_to_scene_transform(cphd_xmltree, coord_ecef)
@@ -183,7 +189,6 @@ def analyze(
             continue
         feature_props.update(valid=True, projected_location_iac=coord_iac)
         features_to_analyze.append(feature)
-        target_locs.append((coord_ecef, coord_iac))
 
     sgn = int(cphd_xmltree.findtext("{*}Global/{*}SGN"))
     cphd_table_info = [
@@ -203,45 +208,33 @@ def analyze(
         context_geoms.append(
             ("Extended Image Area", shapely.get_coordinates(extended_imagearea))
         )
-    for feature, (chip, spacing_rc, bw_rc) in zip(
-        features_to_analyze,
-        extract_chips(
-            cphd_reader,
-            target_locs,
-            ch_id,
-        ),
-        strict=True,
+    for feature, iprparts in extract_iprparts(
+        cphd_reader, features_to_analyze, ch_id, search_size_px=search_size_px
     ):
-        if chip is None:
-            feature["properties"].update(
-                valid=False, message="No vectors found that support this target"
-            )
-            continue
-
-        est_offset_rc, peak_power, iprparts = _ipr.estimate_peak(
-            chip, search_dist=search_size_px
-        )
-        est_offset_si = est_offset_rc * spacing_rc  # in SI units (0: s, 1: Hz)
-        feature["properties"].update(
-            valid=True,
-            observed_toa_offset_sec=est_offset_si[0],
-            observed_dopplerfreq_offset_hz=est_offset_si[1],
-            peak_power=peak_power,
-        )
-        iprparts.chip = _ipr.downsample_chip(iprparts.chip)
-        customize_spatial_axes(iprparts, spacing_rc)
+        fprops = feature["properties"]
+        spacing_rc = [
+            fprops["delta_toa_spacing_sec"],
+            fprops["delta_dopplerfreq_spacing_hz"],
+        ]
+        bw_rc = [fprops["rf_bandwidth_hz"], fprops["dwell_period_sec"]]
         k_iprparts = _ipr.create_spectral_chip(iprparts, sgn)
         customize_spatialfreq_axes(k_iprparts, spacing_rc)
         target_info = [
-            ("Target Peak", f"{10 * np.log10(peak_power):.6f} dB"),
+            ("Target Peak", f"{10 * np.log10(fprops['peak_power']):.6f} dB"),
             ("", ""),
-            ("TOA Offset", f"{est_offset_si[0] * 1e9:.6f} nsec"),
-            ("RF BW", f"{bw_rc[0] * 1e-6:.6f} MHz"),
-            ("Offset x BW", f"{bw_rc[0] * est_offset_si[0]:.6f}"),
+            ("TOA Offset", f"{fprops['observed_toa_offset_sec'] * 1e9:.6f} nsec"),
+            ("RF BW", f"{fprops['rf_bandwidth_hz'] * 1e-6:.6f} MHz"),
+            (
+                "Offset x BW",
+                f"{fprops['rf_bandwidth_hz'] * fprops['observed_toa_offset_sec']:.6f}",
+            ),
             ("", ""),
-            ("fdop Offset", f"{est_offset_si[1]:.6f} m"),
-            ("T Dwell", f"{bw_rc[1]:.6f} sec"),
-            ("Offset x Dwell", f"{bw_rc[1] * est_offset_si[1]:.6f}"),
+            ("fdop Offset", f"{fprops['observed_dopplerfreq_offset_hz']:.6f} Hz"),
+            ("T Dwell", f"{fprops['dwell_period_sec']:.6f} sec"),
+            (
+                "Offset x Dwell",
+                f"{fprops['dwell_period_sec'] * fprops['observed_dopplerfreq_offset_hz']:.6f}",
+            ),
             ("", ""),
         ]
         fig = _ipr.plot_ipr(
@@ -275,23 +268,45 @@ def analyze(
     )
 
 
-def extract_chips(
+def extract_iprparts(
     cphd_reader: skcphd.Reader,
-    target_locs: Sequence[tuple[np.ndarray, np.ndarray]],
+    features: Sequence[dict[str, Any]],
     ch_id: str,
-):
-    """Iterator that yields image chips and supporting metadata for requested target locations.
+    *,
+    search_size_px: None | int = None,
+) -> Iterator[tuple[dict[str, Any], _ipr.IprParts]]:
+    """Iterate over features and create IPR peak estimates for those with vector support.
 
+    This method updates the properties of each feature, but only yields values for those with vector support.
     Implementation uses a simple 2D FFT after re-doing motion compensation and assumes a somewhat constant FX
     bandwidth and RcvTime sampling interval across the target's dwell.
 
-    TODO: more docstrings / return typehints
+    Parameters
+    ----------
+    cphd_reader : sarkit.cphd.Reader
+        Open CPHD reader object
+    features : sequence of dict of {str : any}
+        Sequence of GeoJSON features containing 3D point features to analyze.
+        This function modifies each feature's properties with status and/or IPR peak measurements.
+    ch_id : str
+        Identifier of CPHD channel to analyze
+    search_size_px : int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        If ``None``, a single iteration using default-sized chips is performed.
+
+    Yields
+    ------
+    updated_feature : dict of {str : Any}
+        GeoJSON feature containing vector-supported target with new IPR peak measurements in its properties.
+    iprparts : IprParts
+        IPR chip and cuts in delta-TOA, delta-doppler-frequency space suitable for downstream analysis/plotting
     """
     all_pvps = cphd_reader.read_pvps(ch_id)
     ref_times = skcphd.compute_t_ref_from_pvps(all_pvps)
 
     sgn = int(cphd_reader.metadata.xmltree.findtext("{*}Global/{*}SGN"))
-    for tgt_ecef, (tgt_iax, tgt_iay) in target_locs:
+    for feature in features:
+        tgt_iax, tgt_iay = feature["properties"]["projected_location_iac"]
         t_cod, t_dwell = compute_dwelltimes_using_poly(
             ch_id, tgt_iax, tgt_iay, cphd_reader.metadata.xmltree
         )
@@ -301,9 +316,13 @@ def extract_chips(
         start_vector = bisect.bisect_right(ref_times, t_start)  # leftmost > t_start
         past_stop_vector = bisect.bisect_left(ref_times, t_end)  # rightmost < t_end + 1
         if past_stop_vector - start_vector < 1:
-            yield None
+            feature["properties"].update(
+                valid=False, message="No vectors found that support this target"
+            )
             continue
 
+        tgt_llh = _ipr.get_feature_point(feature)
+        tgt_ecef = sarkit.wgs84.geodetic_to_cartesian(tgt_llh)
         this_signal, these_pvps = skp_remo.remocomp_cphd_chan(
             cphd_reader,
             ch_id,
@@ -338,19 +357,31 @@ def extract_chips(
             nfft2, NOM_CHIP_EDGE_PX, 1.0, -sgn, True, True, this_signal
         )
 
-        spacing_rc = 1.0 / np.array(
-            [
-                np.mean(these_pvps["SCSS"]) * nfft1,
-                np.mean(np.diff(these_pvps["RcvTime"])) * nfft2,
-            ]
+        delta_toa_spacing_sec = 1.0 / (np.mean(these_pvps["SCSS"]) * nfft1)
+        delta_dopplerfreq_spacing_hz = 1.0 / (
+            np.mean(np.diff(these_pvps["RcvTime"])) * nfft2
         )
-        bw_rc = np.array(
-            [
-                np.mean(these_pvps["FX2"] - these_pvps["FX1"]),
-                (these_pvps["RcvTime"][-1] - these_pvps["RcvTime"][0]),
-            ]
+        rf_bandwidth_hz = np.mean(these_pvps["FX2"] - these_pvps["FX1"])
+        dwell_period_sec = these_pvps["RcvTime"][-1] - these_pvps["RcvTime"][0]
+        est_offset_rc, peak_power, iprparts = _ipr.estimate_peak(
+            this_signal, search_dist=search_size_px
         )
-        yield this_signal, spacing_rc, bw_rc
+        feature["properties"].update(
+            valid=True,
+            observed_toa_offset_sec=est_offset_rc[0] * delta_toa_spacing_sec,
+            observed_dopplerfreq_offset_hz=est_offset_rc[1]
+            * delta_dopplerfreq_spacing_hz,
+            peak_power=peak_power,
+            delta_toa_spacing_sec=delta_toa_spacing_sec,
+            delta_dopplerfreq_spacing_hz=delta_dopplerfreq_spacing_hz,
+            rf_bandwidth_hz=rf_bandwidth_hz,
+            dwell_period_sec=dwell_period_sec,
+        )
+        iprparts.chip = _ipr.downsample_chip(iprparts.chip)
+        customize_spatial_axes(
+            iprparts, [delta_toa_spacing_sec, delta_dopplerfreq_spacing_hz]
+        )
+        yield feature, iprparts
 
 
 def condition_signal_in_place(sig_array, pvps):

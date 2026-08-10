@@ -55,14 +55,26 @@ def analyze(
     *,
     search_sizes_px: None | Sequence[int] = None,
 ) -> None:
-    """Perform IPR analysis of SICD targets.
+    """Generate and write SICD IPR analysis artifacts to a directory for targets described in a GeoJSON.
 
     Targets may be refined iteratively.
     Each iteration will be moved by the median geolocation error from the previous iteration.
     Multiple iterations with decreasing search sizes can be used to be more likely to find the correct target when there
     is mainly a bulk offset to geolocation for all targets.
 
-    TODO: finish docstring
+    Parameters
+    ----------
+    sicd_reader : sarkit.sicd.NitfReader
+        Open SICD reader object
+    geojson : dict of {str : any}
+        Parsed GeoJSON object containing 3D point features to analyze
+    outdir : pathlib.Path
+        Path to write output files to
+    search_sizes_px : sequence of int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        Multiple iterations with decreasing search sizes can be used to more likely find the correct target when
+        there is mainly a bulk geolocation offset.
+        If ``None``, a single iteration using default-sized chips is performed.
     """
 
     # Make sure targets project near the valid region
@@ -75,12 +87,7 @@ def analyze(
         if (orig_properties := feature.get("properties")) is not None:
             feature_props["original_properties"] = orig_properties
         feature["properties"] = feature_props
-
-        coordinates = np.asarray(feature["geometry"]["coordinates"], dtype=np.float64)
-        if feature["geometry"]["type"] != "Point" or coordinates.shape != (3,):
-            raise ValueError("Only 3D Point features are supported")
-
-        coord_llh = [coordinates[1], coordinates[0], coordinates[2]]
+        coord_llh = _ipr.get_feature_point(feature)
         coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
         coord_xrowycol, _, success = sksicd.scene_to_image(sicd_xmltree, coord_ecef)
         if not success:
@@ -217,7 +224,29 @@ def chip_and_estimate_peak(
 ) -> tuple[np.ndarray, float, _ipr.IprParts]:
     """Chip a SICD around a center point then estimate a nearby peak power and location inside of it.
 
-    TODO: better docstring
+    Parameters
+    ----------
+    sicd_reader : sarkit.sicd.NitfReader
+        Open SICD reader object
+    chip_center_xrowycol : array_like
+        (xrow, ycol) coordinate of chip center in meters
+    search_size_px : int or None, optional
+        Number of pixels away from the chip center to search in each dimension.
+        If ``None``, the entire chip is searched.
+
+    Returns
+    -------
+    est_loc_xrowycol : ndarray
+        (xrow, ycol) coordinate of estimated peak location in meters
+    peak_power : float
+        Estimated peak power
+    iprparts : IprParts
+        Byproducts of the peak finding that may be useful for downstream analysis/plotting
+
+    Raises
+    ------
+    UnsupportedChipError
+        If the requested chip extent is not supported by the SICD.
     """
     chip_edge_px = NOM_CHIP_EDGE_PX
     if search_size_px is not None:

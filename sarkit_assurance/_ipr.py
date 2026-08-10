@@ -3,6 +3,7 @@
 import dataclasses
 import json
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -76,8 +77,34 @@ def _qcap(vals):
     return ndx + p, y_p
 
 
-def estimate_peak(chip, *, offset_rc=(0.0, 0.0), search_dist=None):
-    """TODO: docstring"""
+def estimate_peak(
+    chip: np.ndarray,
+    *,
+    offset_rc: Sequence[float] = (0.0, 0.0),
+    search_dist: int | None = None,
+) -> tuple[np.ndarray, float, IprParts]:
+    """Estimate the power and location of the peak response in a complex chip.
+
+    Parameters
+    ----------
+    chip : ndarray
+        2D complex array that is nominally centered on the expected target location
+    offset_rc : sequence of float, optional
+        (row offset, col offset) to add to chip center to yield expected target location.
+        Each offset should be less than 1.
+    search_dist : int or None, optional
+        Number of pixels away from the chip center to search in each dimension for the peak.
+        If ``None``, the whole chip is searched.
+
+    Returns
+    -------
+    est_offset_rc : ndarray
+        (row offset, col offset) to add to chip center to yield estimated target location
+    peak_power : float
+        Squared amplitude of the peak
+    iprparts : IprParts
+        Byproducts of the peak finding that may be useful for downstream analysis/plotting
+    """
     if search_dist is None:
         search_dist = min(chip.shape) // 2 - 1
 
@@ -392,7 +419,30 @@ def plot_ipr(
     table_info: list[tuple[str, str]],
     target_context: TargetContext,
 ) -> go.Figure:
-    # TODO: docstring/interface - may change when more measurements are added (e.g. pass spatial freq cuts in)
+    """Create an IPR plot figure object.
+
+    Parameters
+    ----------
+    iprparts : IprParts
+        Spatial IPR components to plot
+    k_iprparts : IprParts
+        Spatial frequency IPR components to plot
+    spacing_rc : sequence of float
+        Sequence of (row spacing, column spacing) for the spatial IPR chip.
+        Units must cancel out when multiplied by ``bw_rc``.
+    bw_rc : sequence of float
+        Sequence of expected (krow bandwidth, kcol bandwidth) describing the spatial frequency support.
+        Units must cancel out when multiplied by ``spacing_rc``.
+    table_info : list of tuple of (str, str)
+        List of (label, value) pairs to include as a two-column table on the figure.
+    target_context : TargetContext
+        Geometries that contextualize the target location in a subplot on the figure.
+        ``target_context.geoms`` are ordered; e.g. items at the front of the list appear in front of later items.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+    """
 
     # downselect row/col cut - only keep portion near peak, convert to nyquist samples
     def get_nyqsamples_near_pk(iprcut: Cut, ss: float, bw: float) -> Cut:
@@ -586,3 +636,13 @@ def plot_ipr(
         )
 
     return fig
+
+
+def get_feature_point(feature: dict[str, Any]) -> np.ndarray:
+    """Return the point location (lat, lon, hae) from a GeoJSON feature."""
+    # TODO: probably move this to a more common, geojson utils place
+    coordinates = np.asarray(feature["geometry"]["coordinates"], dtype=np.float64)
+    if feature["geometry"]["type"] != "Point" or coordinates.shape != (3,):
+        raise ValueError("Only 3D Point features are supported")
+    # swap lon/lat
+    return coordinates[[1, 0, 2]]
