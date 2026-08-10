@@ -3,6 +3,7 @@ import json
 import re
 
 import numpy as np
+import pytest
 import sarkit.sicd as sksicd
 import sarkit.wgs84
 
@@ -243,3 +244,79 @@ def test_main_chipped_sicd(example_sicd_cf8, tmp_path):
 
     # chip results match global
     assert ipr_results_chip["features"][1] == ipr_results["features"][1]
+
+
+def test_main_pixeltypes(example_sicd_cf8, tmp_path):
+    geo = make_feature_collection_geojson(example_sicd_cf8, include_bad=False)
+    geo["features"] = [x for x in geo["features"] if x["id"] == "scp"]  # only keep SCP
+    assert len(geo["features"]) == 1
+
+    target_geojson = tmp_path / "targets.geojson"
+    target_geojson.write_text(json.dumps(geo))
+
+    # write equivalent SICDs in all PixelTypes
+    chipsize = sicd_ipr.NOM_CHIP_EDGE_PX + 10
+
+    rng = np.random.default_rng(123456)
+    amp = rng.integers(0, 255, (chipsize, chipsize))
+    phase = rng.choice([0, 64, 128, 192], amp.shape)
+    sig = amp * np.exp(1j * phase / 256 * 2 * np.pi)
+
+    ampphs = np.zeros(
+        (chipsize, chipsize), dtype=sksicd.PIXEL_TYPES["AMP8I_PHS8I"]["dtype"]
+    )
+    ampphs["amp"] = amp
+    ampphs["phase"] = phase
+
+    reim16 = np.zeros(
+        (chipsize, chipsize), dtype=sksicd.PIXEL_TYPES["RE16I_IM16I"]["dtype"]
+    )
+    reim16["real"] = sig.real
+    reim16["imag"] = sig.imag
+
+    reim32f = np.round(sig).astype(sksicd.PIXEL_TYPES["RE32F_IM32F"]["dtype"])
+
+    equivalent_sicds = {
+        "AMP8I_PHS8I": (ampphs, tmp_path / "AMP8I_PHS8I.sicd"),
+        "RE16I_IM16I": (reim16, tmp_path / "RE16I_IM16I.sicd"),
+        "RE32F_IM32F": (reim32f, tmp_path / "RE32F_IM32F.sicd"),
+    }
+    with example_sicd_cf8.open("rb") as f, sksicd.NitfReader(f) as r:
+        tgt_rcglob = sksicd.xrowycol_to_rowcol(r.metadata.xmltree, [0.0, 0.0])
+        chip, chipxml = r.read_sub_image(
+            int(tgt_rcglob[0] - chipsize // 2),
+            int(tgt_rcglob[1] - chipsize // 2),
+            int(tgt_rcglob[0] + chipsize // 2),
+            int(tgt_rcglob[1] + chipsize // 2),
+        )
+        assert chip.shape == (chipsize, chipsize)
+        r.metadata.xmltree = chipxml
+        for pixeltype, (sig, sicdfile) in equivalent_sicds.items():
+            chipxml.find(".//{*}PixelType").text = pixeltype
+            with sicdfile.open("wb") as fw, sksicd.NitfWriter(fw, r.metadata) as w:
+                w.write_image(sig)
+
+    results = {}
+    for pixeltype, (_, sicdfile) in equivalent_sicds.items():
+        outdir = tmp_path / f"out-{pixeltype}"
+        outdir.mkdir()
+        sicd_ipr.main([str(sicdfile), str(target_geojson), str(outdir)])
+        outfile = outdir / "sicd_ipr.json"
+        assert outfile.is_file()
+        results[pixeltype] = json.loads(outfile.read_text())
+
+    def compare_results(a, b):
+        for fa, fb in zip(a["features"], b["features"]):
+            if "id" in fa:
+                assert fa["id"] == fb["id"]
+            else:
+                assert "id" not in fb
+            faprops = fa["properties"]
+            fbprops = fb["properties"]
+            assert faprops["valid"] == fbprops["valid"]
+            if faprops["valid"]:
+                for prop in ("observed_location_offset_xrowycol", "peak_power"):
+                    assert faprops[prop] == pytest.approx(fbprops[prop])
+
+    compare_results(results["AMP8I_PHS8I"], results["RE16I_IM16I"])
+    compare_results(results["AMP8I_PHS8I"], results["RE32F_IM32F"])
