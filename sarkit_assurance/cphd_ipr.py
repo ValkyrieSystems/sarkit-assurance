@@ -2,8 +2,11 @@
 
 import argparse
 import bisect
+import copy
+import importlib.metadata
 import json
 import pathlib
+import textwrap
 from collections.abc import Iterator, Sequence
 from typing import Any
 
@@ -144,12 +147,72 @@ def get_extended_image_area(
 def analyze(
     cphd_reader: skcphd.Reader,
     geojson: dict[str, Any],
-    ch_id: str,
+    ch_ids: Sequence[str],
     outdir: pathlib.Path,
     *,
     search_size_px: None | int = None,
 ) -> None:
     """Generate and write CPHD IPR analysis artifacts to a directory for targets described in a GeoJSON.
+
+    Analysis artifacts written to ``outdir``:
+
+    cphd_ipr.json
+        Input GeoJSON, augmented such that each feature's ``properties`` member is populated with IPR analysis results.
+        Existing properties, if present, are maintained in the ``original_properties`` member.
+    cphd_ipr${index}[-${feature_id}]-${ch_id}.html
+        IPR plot for a given feature and channel.
+
+    Parameters
+    ----------
+    cphd_reader : sarkit.cphd.Reader
+        Open CPHD reader object
+    geojson : dict of {str : any}
+        Parsed GeoJSON object containing 3D point features to analyze
+    ch_ids : sequence of str
+        Identifiers of CPHD channels to analyze
+    outdir : pathlib.Path
+        Path to write output files to
+    search_size_px : int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        If ``None``, a single iteration using default-sized chips is performed.
+    """
+    cphd_xmltree = cphd_reader.metadata.xmltree
+    working_geojson = copy.deepcopy(geojson)  # work on a copy to avoid side-effects
+    for index, feature in enumerate(_get_all_features(working_geojson)):
+        feature_props: dict[str, Any] = {"index": index}
+        if (orig_properties := feature.get("properties")) is not None:
+            feature_props["original_properties"] = orig_properties
+        feature["properties"] = feature_props
+        coord_llh = _ipr.get_feature_point(feature)
+        coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
+        try:
+            coord_iac = ecef_to_scene_transform(cphd_xmltree, coord_ecef)
+        except RuntimeError as exc:
+            coord_iac = None
+            feature_props.update(message=str(exc))
+        feature_props.update(projected_location_iac=coord_iac, per_channel_results=[])
+
+    for ch_id in ch_ids:
+        _analyze_channel(
+            cphd_reader, working_geojson, ch_id, outdir, search_size_px=search_size_px
+        )
+
+    (outdir / "cphd_ipr.json").write_text(
+        json.dumps(working_geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
+    )
+
+
+def _analyze_channel(
+    cphd_reader: skcphd.Reader,
+    geojson: dict[str, Any],
+    ch_id: str,
+    outdir: pathlib.Path,
+    *,
+    search_size_px: None | int = None,
+) -> None:
+    """Add measurements to targets in ``geojson`` and write IPR plots to a directory for one CPHD channel.
+
+    This function assumes it is being called by ``analyze``.
 
     Parameters
     ----------
@@ -168,26 +231,32 @@ def analyze(
 
     # Find target image coordinates and ensure they are (nearly) within ImageArea
     cphd_xmltree = cphd_reader.metadata.xmltree
+    core_name = cphd_xmltree.findtext("{*}CollectionID/{*}CoreName")
     imagearea_iac = get_channel_image_area(cphd_xmltree, ch_id)
     padded_imagearea_iac = imagearea_iac.buffer(NUM_IAC_PAD, quad_segs=4)
     features_to_analyze = []
-    for index, feature in enumerate(_get_all_features(geojson)):
-        feature_props: dict[str, Any] = {"index": index}
-        if (orig_properties := feature.get("properties")) is not None:
-            feature_props["original_properties"] = orig_properties
-        feature["properties"] = feature_props
-        coord_llh = _ipr.get_feature_point(feature)
-        coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
-        try:
-            coord_iac = ecef_to_scene_transform(cphd_xmltree, coord_ecef)
-        except RuntimeError as exc:
-            feature["properties"].update(valid=False, message=str(exc))
-            continue
+
+    for feature in _get_all_features(geojson):
+        coord_iac = feature["properties"]["projected_location_iac"]
+        if coord_iac is None:
+            continue  # skip as ecef_to_scene must've gone wrong
+
+        # start the "per_channel_results" for this feature and channel
+        feature["properties"]["per_channel_results"].append(
+            {
+                "application": f"{__package__} {importlib.metadata.version(__package__)} | cphd_ipr",
+                "core_name": core_name,
+                "ch_id": ch_id,
+                "valid": False,
+            }
+        )
 
         if not shapely.contains_xy(padded_imagearea_iac, coord_iac[0], coord_iac[1]):
-            feature_props.update(valid=False, message="Too far outside ImageArea")
+            feature["properties"]["per_channel_results"][-1].update(
+                {"valid": False, "message": "Too far outside ImageArea"}
+            )
             continue
-        feature_props.update(valid=True, projected_location_iac=coord_iac)
+
         features_to_analyze.append(feature)
 
     sgn = int(cphd_xmltree.findtext("{*}Global/{*}SGN"))
@@ -211,7 +280,7 @@ def analyze(
     for feature, iprparts in extract_iprparts(
         cphd_reader, features_to_analyze, ch_id, search_size_px=search_size_px
     ):
-        fprops = feature["properties"]
+        fprops = feature["properties"]["per_channel_results"][-1]
         spacing_rc = [
             fprops["delta_toa_spacing_sec"],
             fprops["delta_dopplerfreq_spacing_hz"],
@@ -260,12 +329,9 @@ def analyze(
         if "id" in feature:
             figstem += f"-{names.sanitize_name(feature['id'])}"
             figtitle += f": {feature['id']}"
+        figstem += f"-{names.sanitize_name(ch_id)}"
         fig.update_layout(title_text=figtitle)
         fig.write_html(outdir / f"{figstem}.html")
-
-    (outdir / "cphd_ipr.json").write_text(
-        json.dumps(geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
-    )
 
 
 def extract_iprparts(
@@ -316,8 +382,12 @@ def extract_iprparts(
         start_vector = bisect.bisect_right(ref_times, t_start)  # leftmost > t_start
         past_stop_vector = bisect.bisect_left(ref_times, t_end)  # rightmost < t_end + 1
         if past_stop_vector - start_vector < 1:
-            feature["properties"].update(
-                valid=False, message="No vectors found that support this target"
+            feature["properties"]["per_channel_results"].append(
+                {
+                    "ch_id": ch_id,
+                    "valid": False,
+                    "message": "No vectors found that support this target",
+                }
             )
             continue
 
@@ -366,16 +436,20 @@ def extract_iprparts(
         est_offset_rc, peak_power, iprparts = _ipr.estimate_peak(
             this_signal, search_dist=search_size_px
         )
-        feature["properties"].update(
-            valid=True,
-            observed_toa_offset_sec=est_offset_rc[0] * delta_toa_spacing_sec,
-            observed_dopplerfreq_offset_hz=est_offset_rc[1]
-            * delta_dopplerfreq_spacing_hz,
-            peak_power=peak_power,
-            delta_toa_spacing_sec=delta_toa_spacing_sec,
-            delta_dopplerfreq_spacing_hz=delta_dopplerfreq_spacing_hz,
-            rf_bandwidth_hz=rf_bandwidth_hz,
-            dwell_period_sec=dwell_period_sec,
+        these_results = feature["properties"]["per_channel_results"][-1]
+        assert these_results["ch_id"] == ch_id
+        these_results.update(
+            {
+                "valid": True,
+                "observed_toa_offset_sec": est_offset_rc[0] * delta_toa_spacing_sec,
+                "observed_dopplerfreq_offset_hz": est_offset_rc[1]
+                * delta_dopplerfreq_spacing_hz,
+                "peak_power": peak_power,
+                "delta_toa_spacing_sec": delta_toa_spacing_sec,
+                "delta_dopplerfreq_spacing_hz": delta_dopplerfreq_spacing_hz,
+                "rf_bandwidth_hz": rf_bandwidth_hz,
+                "dwell_period_sec": dwell_period_sec,
+            }
         )
         iprparts.chip = _ipr.downsample_chip(iprparts.chip)
         customize_spatial_axes(
@@ -515,13 +589,42 @@ def _get_all_features(geojson):
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Analyze target IPRs in a CPHD")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.dedent("""
+            Analyze target IPRs in a CPHD
+
+            Produces:
+
+            cphd_ipr.json
+                Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
+                results. Existing properties, if present, are maintained in the "original_properties" member.
+            cphd_ipr${index}[-${feature_id}]-${ch_id}.html
+                IPR plot for a given feature and channel.
+        """),
+    )
     parser.add_argument(
         "cphd_file", help="Input CPHD file (must have Antenna metadata)"
     )
     parser.add_argument("geojson_file", help="Input GeoJSON file")
     parser.add_argument("out_dir", help="Directory to store results", type=pathlib.Path)
+    channel_group = parser.add_argument_group(
+        title="Channel Selection",
+        description="If these arguments are omitted, all channels are used.",
+    )
+    channel_group.add_argument(
+        "--ref-chan", action="store_true", help="include the reference channel"
+    )
+    channel_group.add_argument(
+        "--chan",
+        action="extend",
+        nargs="+",
+        help="identifier of channel to analyze",
+    )
     config = parser.parse_args(args)
+
+    # channel selection
+    ch_ids = config.chan or []
 
     with open(config.geojson_file, "rb") as file:
         geo = json.load(file)
@@ -530,9 +633,17 @@ def main(args=None):
         if r.metadata.xmltree.find("{*}Antenna") is None:
             raise ValueError("CPHD must have antenna metadata")
 
-        # TODO: figure out what we want to do about multi-channel
-        ch_id = r.metadata.xmltree.findtext("{*}Channel/{*}RefChId")
-        analyze(r, geo, ch_id, config.out_dir)
+        if config.ref_chan:
+            ch_ids.append(r.metadata.xmltree.findtext("{*}Channel/{*}RefChId"))
+        if not ch_ids:
+            ch_ids = [
+                x.text
+                for x in r.metadata.xmltree.findall(
+                    "{*}Channel/{*}Parameters/{*}Identifier"
+                )
+            ]
+        ch_ids = sorted(set(ch_ids))
+        analyze(r, geo, ch_ids, config.out_dir)
 
 
 if __name__ == "__main__":
