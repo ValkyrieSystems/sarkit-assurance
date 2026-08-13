@@ -1,8 +1,11 @@
 """Perform IPR analysis on SICD Targets"""
 
 import argparse
+import copy
+import importlib.metadata
 import json
 import pathlib
+import textwrap
 from collections.abc import Sequence
 from typing import Any
 
@@ -58,6 +61,14 @@ def analyze(
 ) -> None:
     """Generate and write SICD IPR analysis artifacts to a directory for targets described in a GeoJSON.
 
+    Analysis artifacts written to ``outdir``:
+
+    sicd_ipr.json
+        Input GeoJSON, augmented such that each feature's ``properties`` member is populated with IPR analysis results.
+        Existing properties, if present, are maintained in the ``original_properties`` member.
+    sicd_ipr${index}[-${feature_id}].html
+        IPR plot for a given feature.
+
     Targets may be refined iteratively.
     Each iteration will be moved by the median geolocation error from the previous iteration.
     Multiple iterations with decreasing search sizes can be used to be more likely to find the correct target when there
@@ -82,9 +93,15 @@ def analyze(
     sicd_xmltree = sicd_reader.metadata.xmltree
     ew = sksicd.ElementWrapper(sicd_xmltree.getroot())
     padded_validdata_xrowycol = get_padded_validdata(ew)
+    working_geojson = copy.deepcopy(geojson)  # work on a copy to avoid side-effects
     features_to_analyze = []
-    for index, feature in enumerate(_get_all_features(geojson)):
-        feature_props: dict[str, Any] = {"index": index}
+    for index, feature in enumerate(_get_all_features(working_geojson)):
+        feature_props: dict[str, Any] = {
+            "application": f"{__package__} {importlib.metadata.version(__package__)} | sicd_ipr",
+            "core_name": ew["CollectionInfo"]["CoreName"],
+            "index": index,
+            "valid": False,
+        }
         if (orig_properties := feature.get("properties")) is not None:
             feature_props["original_properties"] = orig_properties
         feature["properties"] = feature_props
@@ -213,7 +230,7 @@ def analyze(
         search_offset = np.median(this_iter_offsets, axis=0)
 
     (outdir / "sicd_ipr.json").write_text(
-        json.dumps(geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
+        json.dumps(working_geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
     )
 
 
@@ -366,7 +383,20 @@ def _get_all_features(geojson):
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Analyze target IPRs in a SICD")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.dedent("""
+            Analyze target IPRs in a SICD
+
+            Produces:
+
+            sicd_ipr.json
+                Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
+                results. Existing properties, if present, are maintained in the "original_properties" member.
+            sicd_ipr${index}[-${feature_id}].html
+                IPR plot for a given feature.
+        """),
+    )
     parser.add_argument("sicd_file", help="Input SICD file")
     parser.add_argument("geojson_file", help="Input GeoJSON file")
     parser.add_argument("out_dir", help="Directory to store results", type=pathlib.Path)
