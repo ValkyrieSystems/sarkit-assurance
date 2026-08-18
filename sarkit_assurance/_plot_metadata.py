@@ -5,6 +5,8 @@ import itertools
 import pathlib
 import webbrowser
 
+import numpy as np
+import plotly.graph_objects as go
 import plotly.offline.offline
 
 from . import names
@@ -53,6 +55,8 @@ class Plotter:
 
     def __init__(self, title):
         self.title = title
+        self.nominal_width = 1280
+        self.nominal_height = 800
         self.plotters = [
             attr
             for name in dir(self)
@@ -67,6 +71,16 @@ class Plotter:
     @staticmethod
     def get_plotly_js():
         return f'<script type="text/javascript">{plotly.offline.offline.get_plotlyjs()}</script>'
+
+    def new_fig(self, title, meta):
+        return go.Figure(
+            layout={
+                "title_text": self.format_title(title),
+                "height": self.nominal_height,
+                "width": self.nominal_width,
+                "meta": meta,
+            }
+        )
 
     def format_title(self, raw):
         return f"<b>{html.escape(raw)}</b> - <i>{self.title}</i><br>"
@@ -197,3 +211,86 @@ class Plotter:
 
         if auto_open:
             webbrowser.open(f"file://{output_html.resolve()}")
+
+
+def plot_one_dim(ydata):
+    """Plot a single parameter versus index
+
+    Parameters
+    ----------
+    ydata : `numpy.ndarray`
+        The y-axis data values.
+    """
+    fig = go.Figure(
+        data=go.Scatter(x=np.arange(0, len(ydata)), y=ydata, mode="markers")
+    )
+    fig.update_layout(xaxis_title="Vector #")
+    return fig
+
+
+def plot_two_dim(xdata, ydata):
+    """Plot a 2D parametric curve
+
+    Parameters
+    ----------
+    xdata, ydata : `numpy.ndarray`
+        The x-axis and y-axis data values.
+    """
+    fig = go.Figure(
+        data=go.Scatter(
+            x=xdata,
+            y=ydata,
+            mode="markers",
+            marker={
+                "size": 2,
+                "color": np.arange(xdata.size),
+                "colorbar": {
+                    "title": "Vector #",
+                },
+            },
+        )
+    )
+    return fig
+
+
+def plot_three_dim(xdata, ydata, zdata):
+    """Plot a 3D parametric curve
+
+    Parameters
+    ----------
+    xdata, ydata, zdata : `numpy.ndarray`
+        The x-axis, y-axis, and z-axis data values.
+    """
+    return go.Figure(
+        data=[
+            go.Scatter3d(
+                x=xdata,
+                y=ydata,
+                z=zdata,
+                mode="markers",
+                marker={
+                    "size": 2,
+                    "color": np.arange(xdata.size),
+                    "colorbar": {
+                        "title": "Vector #",
+                    },
+                },
+            )
+        ]
+    )
+
+
+def plot_pvp_table(pvps):
+    """Create a table displaying parameter-value pairs."""
+    align = ["left", "center"]
+    return go.Figure(
+        data=[
+            go.Table(
+                header={"values": ["Parameter", "Value"], "align": align},
+                cells={
+                    "values": [list(pvps.keys()), list(pvps.values())],
+                    "align": align,
+                },
+            )
+        ]
+    )

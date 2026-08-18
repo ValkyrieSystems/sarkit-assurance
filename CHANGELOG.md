@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `cphd_ipr` and `sicd_ipr`
+- New dependency: `sarkit-processing`
+
+### Changed
+- Lowered minimum version of `scipy` dependency
+
+
+## [0.3.0] - 2026-07-24
+
+### Added
+- `joint_chip_to_html`
+- `crsd_plot_metadata`
+
+### Fixed
+- `cphd_plot_metadata.Plotter.plot_image_grid` for cases when FirstLine and/or FirstSample are nonzero
+
+
 ## [0.2.1] - 2026-06-29
 
 ### Fixed
@@ -35,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sicd_plot_metadata`
 - `sidd_thumb`
 
-[unreleased]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.2.1...HEAD
+[unreleased]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ValkyrieSystems/sarkit-assurance/compare/v0.1.0...v0.1.1
