@@ -13,7 +13,9 @@ import sarkit.sicd as sksicd
 import sarkit.wgs84
 import shapely.geometry as shg
 
-from sarkit_assurance import _remap, sicd_plot_metadata
+from sarkit_assurance import _remap
+
+from . import _sicd_utils
 
 try:
     from smart_open import open
@@ -111,7 +113,7 @@ def create_sicd_chip_plot(reader: sksicd.NitfReader, feature: dict):
     fig.update_yaxes(title_text="distance from expected (m)", autorange="reversed")
 
     title_text = f"pixel row/col: {sub_index[0]:0.2f} {sub_index[1]:0.2f}"
-    valid_data_polygon = sicd_plot_metadata.valid_data_polygon(subew)
+    valid_data_polygon = _sicd_utils.get_validdata_polygon(subew)
     if not valid_data_polygon.contains(shg.Point(sub_index)):
         title_text += " [outside ValidData]"
 

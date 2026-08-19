@@ -17,25 +17,12 @@ import shapely.affinity
 import shapely.geometry
 from scipy import constants
 
-from . import _plot_metadata, _remap, utils
+from . import _plot_metadata, _remap, _sicd_utils, utils
 
 try:
     from smart_open import open
 except ImportError:
     pass
-
-
-def valid_data_polygon(sicd_ew):
-    """Generate the ValidData polygon object"""
-    vertices = sicd_ew["ImageData"].get("ValidData", None)
-    if vertices is None:
-        # Use edges of full image
-        nrows = sicd_ew["ImageData"]["FullImage"]["NumRows"]
-        ncols = sicd_ew["ImageData"]["FullImage"]["NumCols"]
-
-        vertices = [(0, 0), (0, ncols - 1), (nrows - 1, ncols - 1), (nrows - 1, 0)]
-
-    return shapely.geometry.Polygon(vertices)
 
 
 def pfa_phd_polygon(sicd_ew):
@@ -256,7 +243,7 @@ class Plotter(_plot_metadata.Plotter):
             self.ew["ImageData"]["FirstRow"],
             self.ew["ImageData"]["FirstCol"],
         )
-        valid_data = valid_data_polygon(self.ew).intersection(
+        valid_data = _sicd_utils.get_validdata_polygon(self.ew).intersection(
             shapely.geometry.box(
                 first[0], first[1], image_shape[0] + first[0], image_shape[1] + first[1]
             )
@@ -343,7 +330,7 @@ class Plotter(_plot_metadata.Plotter):
             chip[: rchip.shape[0], : rchip.shape[1]] = rchip
             fchip = np.abs(np.fft.fftshift(np.fft.fft2(chip))) ** 2
             fchip = np.log(fchip.clip(fchip.max() / 1e5, None))
-            fchip = _remap._scale_to_byte(fchip)
+            fchip = _remap.scale_to_byte(fchip)
             rc = dict(row=(index // 3 + 1), col=(index % 3 + 2))
             fig.add_heatmap(
                 z=fchip,
@@ -465,7 +452,7 @@ class Plotter(_plot_metadata.Plotter):
             tmp = self.sample_data.real**2 + self.sample_data.imag**2
             tmp = np.log10(tmp.clip(tmp.max() / 1e6, None))
             tmp = downsample_all_dims(tmp, self.downsample_factor)
-            tmp = _remap._scale_to_byte(tmp)
+            tmp = _remap.scale_to_byte(tmp)
             downsamp_offset = (self.downsample_factor - 1) / 2.0
             fig.add_heatmap(
                 z=tmp,
@@ -496,7 +483,7 @@ class Plotter(_plot_metadata.Plotter):
         )
         _plot_polygon(
             fig,
-            valid_data_polygon(self.ew),
+            _sicd_utils.get_validdata_polygon(self.ew),
             swap_xy=True,
             name="ValidData",
             line_color="red",
@@ -549,7 +536,7 @@ class Plotter(_plot_metadata.Plotter):
         )
         _plot_polygon(
             fig,
-            valid_data_polygon(self.ew),
+            _sicd_utils.get_validdata_polygon(self.ew),
             swap_xy=True,
             name="ValidData",
             line=dict(color="black", dash="dash"),
@@ -671,7 +658,7 @@ class Plotter(_plot_metadata.Plotter):
         scp_time = self.ew["SCPCOA"]["SCPTime"]
         tcoapoly = self.ew["Grid"]["TimeCOAPoly"]
 
-        exterior = valid_data_polygon(self.ew).exterior.coords[:]
+        exterior = _sicd_utils.get_validdata_polygon(self.ew).exterior.coords[:]
         points = []
         for start, stop in zip(exterior[:-1], exterior[1:]):
             xvals = np.linspace(start[0], stop[0], 4, endpoint=False)

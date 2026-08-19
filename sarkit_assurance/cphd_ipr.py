@@ -1,0 +1,650 @@
+"""Perform IPR analysis on CPHD Targets"""
+
+import argparse
+import bisect
+import copy
+import importlib.metadata
+import json
+import pathlib
+import textwrap
+from collections.abc import Iterator, Sequence
+from typing import Any
+
+import lxml.etree
+import numpy as np
+import numpy.polynomial.polynomial as npp
+import numpy.typing as npt
+import sarkit.cphd as skcphd
+import sarkit.wgs84
+import sarkit_processing.remocomp as skp_remo
+import scipy.fft
+import shapely
+
+from . import _ipr, names
+
+try:
+    from smart_open import open
+except ImportError:
+    pass
+
+NUM_IAC_PAD = 10
+NOM_CHIP_EDGE_PX = 256
+NOMINAL_OSR = 1.25
+
+
+def ecef_to_scene_transform(
+    cphd_xmltree: lxml.etree.ElementTree, tgt_ecef: npt.ArrayLike
+) -> np.ndarray:
+    """Return the IAC coordinates where ``tgt_ecef`` orthogonally projects onto the ReferenceSurface
+
+    Parameters
+    ----------
+    cphd_xmltree : lxml.etree.ElementTree
+        CPHD XML
+    tgt_ecef : (3,) array_like
+        Target location in WGS 84 cartesian coordinates with X, Y, Z components in meters
+
+    Returns
+    -------
+    tgt_iac : tuple, shape=(2,)
+        Location where ``tgt_ecef`` orthogonally projects onto the ReferenceSurface in IAC coordinates
+        with IAX, IAY components in meters.
+    """
+    tgt_ecef = np.asarray(tgt_ecef)
+
+    max_iters = 15
+    max_err = 1e-5  # meters
+    step_x = 1.0  # Initial step size in scene coords
+    step_y = 1.0  # Initial step size in scene coords
+
+    # Initialize three calibration points near origin of scene coord sys
+    scene_cal_points = np.array([[0.0, 0.0], [step_x, 0.0], [0.0, step_y]])
+
+    # Finds step size in scene coords that produces 1-meter change in ECEF
+    ecef_cal_points = skcphd.iac_to_ecf(cphd_xmltree, scene_cal_points)
+    step_x /= float(np.linalg.norm(ecef_cal_points[1, :] - ecef_cal_points[0, :]))
+    step_y /= float(np.linalg.norm(ecef_cal_points[2, :] - ecef_cal_points[0, :]))
+
+    # Pick new calibration points based on new step sizes
+    scene_cal_points = np.array([[0.0, 0.0], [step_x, 0.0], [0.0, step_y]])
+
+    for _ in range(max_iters):
+        ecef_cal_points = skcphd.iac_to_ecf(cphd_xmltree, scene_cal_points)
+
+        # Compute local partial derivates of ECEF w.r.t. scene x and y coordinates
+        der_x = (ecef_cal_points[1, :] - ecef_cal_points[0, :]) / step_x
+        der_y = (ecef_cal_points[2, :] - ecef_cal_points[0, :]) / step_y
+
+        # Convert target_ecef to ESTIMATED scene_coords
+        tgt_scene_x = (
+            np.dot(der_x, tgt_ecef - ecef_cal_points[0, :]) + scene_cal_points[0, 0]
+        )
+        tgt_scene_y = (
+            np.dot(der_y, tgt_ecef - ecef_cal_points[0, :]) + scene_cal_points[0, 1]
+        )
+
+        # Convert scene_coords back to ecef (using exact transform - result will be in scene plane)
+        est_ecef = skcphd.iac_to_ecf(cphd_xmltree, [tgt_scene_x, tgt_scene_y])
+
+        # Find error, defined as distance between tgt_ecef and a line normal to scene plane at est_ecef
+        ecef_normal = np.cross(der_x, der_y) / np.linalg.norm(
+            np.cross(der_x, der_y)
+        )  # Unit vector normal to scene
+        dist = np.linalg.norm(
+            (tgt_ecef - est_ecef)
+            - np.dot(tgt_ecef - est_ecef, ecef_normal) * ecef_normal
+        )
+
+        if dist < max_err:
+            return np.array([tgt_scene_x, tgt_scene_y])
+
+        # Re-initialize three scene points near last estimated tgt location
+        scene_cal_points = np.array(
+            [
+                [tgt_scene_x, tgt_scene_y],
+                [tgt_scene_x + step_x, tgt_scene_y],
+                [tgt_scene_x, tgt_scene_y + step_y],
+            ]
+        )
+
+    raise RuntimeError(f"Failed to converge to {max_err} after {max_iters} iterations")
+
+
+def _get_imagearea_poly(imgarea_ew, *, use_polygon=True):
+    region = shapely.box(*imgarea_ew["X1Y1"], *imgarea_ew["X2Y2"])
+    if use_polygon and (poly := imgarea_ew.get("Polygon", None)) is not None:
+        region = region.intersection(shapely.Polygon(poly))
+    return region
+
+
+def get_channel_image_area(
+    cphd_xmltree: lxml.etree.ElementTree, ch_id: str
+) -> shapely.Polygon:
+    # TODO: move to sarkit
+    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
+    ia_poly = _get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
+    chan_param_ew = ew["Channel"].find("Parameters", Identifier=ch_id)
+    if "ImageArea" in chan_param_ew:
+        ia_poly = _get_imagearea_poly(chan_param_ew["ImageArea"])
+    return ia_poly
+
+
+def get_scene_image_area(cphd_xmltree: lxml.etree.ElementTree) -> shapely.Polygon:
+    # TODO: move to sarkit
+    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
+    return _get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
+
+
+def get_extended_image_area(
+    cphd_xmltree: lxml.etree.ElementTree,
+) -> shapely.Polygon | None:
+    # TODO: move to sarkit
+    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
+    imgarea_ew = ew["SceneCoordinates"].get("ExtendedArea", None)
+    return None if imgarea_ew is None else _get_imagearea_poly(imgarea_ew)
+
+
+def analyze(
+    cphd_reader: skcphd.Reader,
+    geojson: dict[str, Any],
+    ch_ids: Sequence[str],
+    outdir: pathlib.Path,
+    *,
+    search_size_px: None | int = None,
+) -> None:
+    """Generate and write CPHD IPR analysis artifacts to a directory for targets described in a GeoJSON.
+
+    Analysis artifacts written to ``outdir``:
+
+    cphd_ipr.json
+        Input GeoJSON, augmented such that each feature's ``properties`` member is populated with IPR analysis results.
+        Existing properties, if present, are maintained in the ``original_properties`` member.
+    cphd_ipr${index}[-${feature_id}]-${ch_id}.html
+        IPR plot for a given feature and channel.
+
+    Parameters
+    ----------
+    cphd_reader : sarkit.cphd.Reader
+        Open CPHD reader object
+    geojson : dict of {str : any}
+        Parsed GeoJSON object containing 3D point features to analyze
+    ch_ids : sequence of str
+        Identifiers of CPHD channels to analyze
+    outdir : pathlib.Path
+        Path to write output files to
+    search_size_px : int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        If ``None``, a single iteration using default-sized chips is performed.
+    """
+    cphd_xmltree = cphd_reader.metadata.xmltree
+    working_geojson = copy.deepcopy(geojson)  # work on a copy to avoid side-effects
+    for index, feature in enumerate(_get_all_features(working_geojson)):
+        feature_props: dict[str, Any] = {"index": index}
+        if (orig_properties := feature.get("properties")) is not None:
+            feature_props["original_properties"] = orig_properties
+        feature["properties"] = feature_props
+        coord_llh = _ipr.get_feature_point(feature)
+        coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
+        try:
+            coord_iac = ecef_to_scene_transform(cphd_xmltree, coord_ecef)
+        except RuntimeError as exc:
+            coord_iac = None
+            feature_props.update(message=str(exc))
+        feature_props.update(projected_location_iac=coord_iac, per_channel_results=[])
+
+    for ch_id in ch_ids:
+        _analyze_channel(
+            cphd_reader, working_geojson, ch_id, outdir, search_size_px=search_size_px
+        )
+
+    (outdir / "cphd_ipr.json").write_text(
+        json.dumps(working_geojson, cls=_ipr.NdArrJSONEncoder, indent=4)
+    )
+
+
+def _analyze_channel(
+    cphd_reader: skcphd.Reader,
+    geojson: dict[str, Any],
+    ch_id: str,
+    outdir: pathlib.Path,
+    *,
+    search_size_px: None | int = None,
+) -> None:
+    """Add measurements to targets in ``geojson`` and write IPR plots to a directory for one CPHD channel.
+
+    This function assumes it is being called by ``analyze``.
+
+    Parameters
+    ----------
+    cphd_reader : sarkit.cphd.Reader
+        Open CPHD reader object
+    geojson : dict of {str : any}
+        Parsed GeoJSON object containing 3D point features to analyze
+    ch_id : str
+        Identifier of CPHD channel to analyze
+    outdir : pathlib.Path
+        Path to write output files to
+    search_size_px : int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        If ``None``, a single iteration using default-sized chips is performed.
+    """
+
+    # Find target image coordinates and ensure they are (nearly) within ImageArea
+    cphd_xmltree = cphd_reader.metadata.xmltree
+    core_name = cphd_xmltree.findtext("{*}CollectionID/{*}CoreName")
+    imagearea_iac = get_channel_image_area(cphd_xmltree, ch_id)
+    padded_imagearea_iac = imagearea_iac.buffer(NUM_IAC_PAD, quad_segs=4)
+    features_to_analyze = []
+
+    for feature in _get_all_features(geojson):
+        coord_iac = feature["properties"]["projected_location_iac"]
+        if coord_iac is None:
+            continue  # skip as ecef_to_scene must've gone wrong
+
+        # start the "per_channel_results" for this feature and channel
+        feature["properties"]["per_channel_results"].append(
+            {
+                "application": f"{__package__} {importlib.metadata.version(__package__)} | cphd_ipr",
+                "core_name": core_name,
+                "ch_id": ch_id,
+                "valid": False,
+            }
+        )
+
+        if not shapely.contains_xy(padded_imagearea_iac, coord_iac[0], coord_iac[1]):
+            feature["properties"]["per_channel_results"][-1].update(
+                {"valid": False, "message": "Too far outside ImageArea"}
+            )
+            continue
+
+        features_to_analyze.append(feature)
+
+    sgn = int(cphd_xmltree.findtext("{*}Global/{*}SGN"))
+    cphd_table_info = [
+        ("Ch_ID", ch_id),
+        ("Global/SGN", str(sgn)),
+    ]
+    context_geoms = [
+        ("Channel Image Area", shapely.get_coordinates(imagearea_iac.exterior)),
+    ]
+    scene_imagearea = get_scene_image_area(cphd_xmltree)
+    if not shapely.equals(imagearea_iac, scene_imagearea):
+        context_geoms.append(
+            ("Scene Image Area", shapely.get_coordinates(scene_imagearea))
+        )
+    extended_imagearea = get_extended_image_area(cphd_xmltree)
+    if extended_imagearea is not None:
+        context_geoms.append(
+            ("Extended Image Area", shapely.get_coordinates(extended_imagearea))
+        )
+    for feature, iprparts in extract_iprparts(
+        cphd_reader, features_to_analyze, ch_id, search_size_px=search_size_px
+    ):
+        fprops = feature["properties"]["per_channel_results"][-1]
+        spacing_rc = [
+            fprops["delta_toa_spacing_sec"],
+            fprops["delta_dopplerfreq_spacing_hz"],
+        ]
+        bw_rc = [fprops["rf_bandwidth_hz"], fprops["dwell_period_sec"]]
+        k_iprparts = _ipr.create_spectral_chip(iprparts, sgn)
+        customize_spatialfreq_axes(k_iprparts, spacing_rc)
+        target_info = [
+            ("Target Peak", f"{10 * np.log10(fprops['peak_power']):.6f} dB"),
+            ("", ""),
+            ("TOA Offset", f"{fprops['observed_toa_offset_sec'] * 1e9:.6f} nsec"),
+            ("RF BW", f"{fprops['rf_bandwidth_hz'] * 1e-6:.6f} MHz"),
+            (
+                "Offset x BW",
+                f"{fprops['rf_bandwidth_hz'] * fprops['observed_toa_offset_sec']:.6f}",
+            ),
+            ("", ""),
+            ("fdop Offset", f"{fprops['observed_dopplerfreq_offset_hz']:.6f} Hz"),
+            ("T Dwell", f"{fprops['dwell_period_sec']:.6f} sec"),
+            (
+                "Offset x Dwell",
+                f"{fprops['dwell_period_sec'] * fprops['observed_dopplerfreq_offset_hz']:.6f}",
+            ),
+            ("", ""),
+        ]
+        fig = _ipr.plot_ipr(
+            iprparts,
+            k_iprparts,
+            spacing_rc,
+            bw_rc,
+            target_info + cphd_table_info,
+            _ipr.TargetContext(
+                geoms=[
+                    (
+                        "Projected Target",
+                        np.atleast_2d(feature["properties"]["projected_location_iac"]),
+                    )
+                ]
+                + context_geoms,
+                row_label="IAX (m)",
+                col_label="IAY (m)",
+            ),
+        )
+        figstem = f"cphd_ipr{feature['properties']['index']}"
+        figtitle = f"CPHD IPR Analysis - Feature #{feature['properties']['index']}"
+        if "id" in feature:
+            figstem += f"-{names.sanitize_name(feature['id'])}"
+            figtitle += f": {feature['id']}"
+        figstem += f"-{names.sanitize_name(ch_id)}"
+        fig.update_layout(title_text=figtitle)
+        fig.write_html(outdir / f"{figstem}.html")
+
+
+def extract_iprparts(
+    cphd_reader: skcphd.Reader,
+    features: Sequence[dict[str, Any]],
+    ch_id: str,
+    *,
+    search_size_px: None | int = None,
+) -> Iterator[tuple[dict[str, Any], _ipr.IprParts]]:
+    """Iterate over features and create IPR peak estimates for those with vector support.
+
+    This method updates the properties of each feature, but only yields values for those with vector support.
+    Implementation uses a simple 2D FFT after re-doing motion compensation and assumes a somewhat constant FX
+    bandwidth and RcvTime sampling interval across the target's dwell.
+
+    Parameters
+    ----------
+    cphd_reader : sarkit.cphd.Reader
+        Open CPHD reader object
+    features : sequence of dict of {str : any}
+        Sequence of GeoJSON features containing 3D point features to analyze.
+        This function modifies each feature's properties with status and/or IPR peak measurements.
+    ch_id : str
+        Identifier of CPHD channel to analyze
+    search_size_px : int or None, optional
+        Number of pixels away from the expected position to search in each dimension.
+        If ``None``, a single iteration using default-sized chips is performed.
+
+    Yields
+    ------
+    updated_feature : dict of {str : Any}
+        GeoJSON feature containing vector-supported target with new IPR peak measurements in its properties.
+    iprparts : IprParts
+        IPR chip and cuts in delta-TOA, delta-doppler-frequency space suitable for downstream analysis/plotting
+    """
+    all_pvps = cphd_reader.read_pvps(ch_id)
+    ref_times = skcphd.compute_t_ref_from_pvps(all_pvps)
+
+    sgn = int(cphd_reader.metadata.xmltree.findtext("{*}Global/{*}SGN"))
+    for feature in features:
+        tgt_iax, tgt_iay = feature["properties"]["projected_location_iac"]
+        t_cod, t_dwell = compute_dwelltimes_using_poly(
+            ch_id, tgt_iax, tgt_iay, cphd_reader.metadata.xmltree
+        )
+        t_start = t_cod - t_dwell / 2
+        t_end = t_cod + t_dwell / 2
+
+        start_vector = bisect.bisect_right(ref_times, t_start)  # leftmost > t_start
+        past_stop_vector = bisect.bisect_left(ref_times, t_end)  # rightmost < t_end + 1
+        if past_stop_vector - start_vector < 1:
+            feature["properties"]["per_channel_results"].append(
+                {
+                    "ch_id": ch_id,
+                    "valid": False,
+                    "message": "No vectors found that support this target",
+                }
+            )
+            continue
+
+        tgt_llh = _ipr.get_feature_point(feature)
+        tgt_ecef = sarkit.wgs84.geodetic_to_cartesian(tgt_llh)
+        this_signal, these_pvps = skp_remo.remocomp_cphd_chan(
+            cphd_reader,
+            ch_id,
+            tgt_ecef,
+            start_vector=start_vector,
+            stop_vector=past_stop_vector,
+        )
+
+        # Correct for antenna gain
+        tx_gain, tx_phase = compute_oneway_gain_and_phase_for_vectors(
+            cphd_reader.metadata.xmltree, ch_id, "Tx", these_pvps, tgt_ecef
+        )
+        rcv_gain, rcv_phase = compute_oneway_gain_and_phase_for_vectors(
+            cphd_reader.metadata.xmltree, ch_id, "Rcv", these_pvps, tgt_ecef
+        )
+        # Convert from dB gain to linear correction
+        inv_ant_gain = (
+            np.power(10.0, -(tx_gain + rcv_gain) / 20.0)
+            * np.exp(-1j * (tx_phase + rcv_phase) * np.pi * 2.0)
+        ).astype(np.complex64)
+        this_signal *= inv_ant_gain[:, np.newaxis]
+
+        condition_signal_in_place(this_signal, these_pvps)
+
+        nfft1 = scipy.fft.next_fast_len(int(NOMINAL_OSR * this_signal.shape[-1]))
+        this_signal = _ipr._fft_ops(
+            nfft1, NOM_CHIP_EDGE_PX, 1.0, -sgn, True, True, this_signal
+        )
+        this_signal = np.transpose(this_signal)
+        nfft2 = scipy.fft.next_fast_len(int(NOMINAL_OSR * this_signal.shape[-1]))
+        this_signal = _ipr._fft_ops(
+            nfft2, NOM_CHIP_EDGE_PX, 1.0, -sgn, True, True, this_signal
+        )
+
+        delta_toa_spacing_sec = 1.0 / (np.mean(these_pvps["SCSS"]) * nfft1)
+        delta_dopplerfreq_spacing_hz = 1.0 / (
+            np.mean(np.diff(these_pvps["RcvTime"])) * nfft2
+        )
+        rf_bandwidth_hz = np.mean(these_pvps["FX2"] - these_pvps["FX1"])
+        dwell_period_sec = these_pvps["RcvTime"][-1] - these_pvps["RcvTime"][0]
+        est_offset_rc, peak_power, iprparts = _ipr.estimate_peak(
+            this_signal, search_dist=search_size_px
+        )
+        these_results = feature["properties"]["per_channel_results"][-1]
+        assert these_results["ch_id"] == ch_id
+        these_results.update(
+            {
+                "valid": True,
+                "observed_toa_offset_sec": est_offset_rc[0] * delta_toa_spacing_sec,
+                "observed_dopplerfreq_offset_hz": est_offset_rc[1]
+                * delta_dopplerfreq_spacing_hz,
+                "peak_power": peak_power,
+                "delta_toa_spacing_sec": delta_toa_spacing_sec,
+                "delta_dopplerfreq_spacing_hz": delta_dopplerfreq_spacing_hz,
+                "rf_bandwidth_hz": rf_bandwidth_hz,
+                "dwell_period_sec": dwell_period_sec,
+            }
+        )
+        iprparts.chip = _ipr.downsample_chip(iprparts.chip)
+        customize_spatial_axes(
+            iprparts, [delta_toa_spacing_sec, delta_dopplerfreq_spacing_hz]
+        )
+        yield feature, iprparts
+
+
+def condition_signal_in_place(sig_array, pvps):
+    """Condition signal array by zeroing out unwanted portions."""
+    has_signal = "SIGNAL" in pvps.dtype.names
+    for sigvec, pvp in zip(sig_array, pvps, strict=True):
+        if has_signal and pvp["SIGNAL"] != 1:
+            sigvec[:] = 0.0
+        else:
+            start_sample = int(np.round((pvp["FX1"] - pvp["SC0"]) / pvp["SCSS"]))
+            end_sample = int(np.round((pvp["FX2"] - pvp["SC0"]) / pvp["SCSS"]))
+            sigvec[:start_sample] = 0.0
+            sigvec[end_sample + 1 :] = 0.0
+
+
+def compute_dwelltimes_using_poly(
+    ch_id: str,
+    iax: npt.ArrayLike,
+    iay: npt.ArrayLike,
+    cphd_xmltree: lxml.etree.ElementTree,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute center of dwell times and dwell times for scene points using polynomials.
+
+    Parameters
+    ----------
+    ch_id : str
+        Channel unique identifier
+    iax, iay : array_like
+        Image area coordinates (in meters) of the scene points for which to compute the dwell times
+    cphd_xmltree : lxml.etree.ElementTree
+        CPHD XML
+
+    Returns
+    -------
+    t_cod : ndarray
+        Center of dwell times (sec) for the scene points relative to the CollectionStart time
+    t_dwell : ndarray
+       Dwell times (sec) for which the channel signal array contains the echo signals from the scene points
+    """
+    # TODO: move to sarkit
+    iax, iay = np.broadcast_arrays(iax, iay)
+
+    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
+    chan_dt = ew["Channel"].find("Parameters", Identifier=ch_id)["DwellTimes"]
+    cod_poly = ew["Dwell"].find("CODTime", Identifier=chan_dt["CODId"])["CODTimePoly"]
+    dwell_poly = ew["Dwell"].find("DwellTime", Identifier=chan_dt["DwellId"])[
+        "DwellTimePoly"
+    ]
+    t_cod = npp.polyval2d(iax, iay, cod_poly)
+    t_dwell = npp.polyval2d(iax, iay, dwell_poly)
+    return t_cod, t_dwell
+
+
+def compute_oneway_gain_and_phase_for_vectors(
+    xmltree,
+    ch_id,
+    txrcv,
+    pvps,
+    tgt_ecef,
+):
+    ew = skcphd.ElementWrapper(xmltree.getroot())
+    chpar = ew["Channel"].find("Parameters", Identifier=ch_id)
+    apc_id = chpar["Antenna"][f"{txrcv}APCId"]
+    apat_id = chpar["Antenna"][f"{txrcv}APATId"]
+    acf_id = ew["Antenna"].find("AntPhaseCenter", Identifier=apc_id)["ACFId"]
+
+    acf = ew["Antenna"].find("AntCoordFrame", Identifier=acf_id)
+    apat = ew["Antenna"].find("AntPattern", Identifier=apat_id)
+
+    los = tgt_ecef - pvps[f"{txrcv}Pos"]
+    ulos = los / np.linalg.norm(los, axis=-1, keepdims=True)
+
+    t = pvps[f"{txrcv}Time"]
+    acx = np.moveaxis(npp.polyval(t, acf["XAxisPoly"]), 0, -1)
+    acy = np.moveaxis(npp.polyval(t, acf["YAxisPoly"]), 0, -1)
+
+    def unit(v):
+        return v / np.linalg.norm(v, axis=-1, keepdims=True)
+
+    uacz = unit(np.cross(acx, acy))
+    u = unit(unit(acx) + unit(acy))
+    v = np.cross(uacz, u)
+    acx_norm = unit(u - v)
+    acy_norm = unit(u + v)
+
+    dcx = np.vecdot(ulos, acx_norm)
+    dcy = np.vecdot(ulos, acy_norm)
+
+    eb_dcx = npp.polyval(t, apat["EB"]["DCXPoly"])
+    eb_dcy = npp.polyval(t, apat["EB"]["DCYPoly"])
+
+    delta_dcx = dcx - eb_dcx
+    delta_dcy = dcy - eb_dcy
+    g_a = npp.polyval2d(delta_dcx, delta_dcy, apat["Array"]["GainPoly"])
+    p_a = npp.polyval2d(delta_dcx, delta_dcy, apat["Array"]["PhasePoly"])
+
+    g_e = npp.polyval2d(dcx, dcy, apat["Element"]["GainPoly"])
+    p_e = npp.polyval2d(dcx, dcy, apat["Element"]["PhasePoly"])
+
+    # TODO: ask about r**2/ref_range losses
+    return g_a + g_e, p_a + p_e
+
+
+def customize_spatial_axes(iprparts: _ipr.IprParts, spacing_rc: Sequence[float]):
+    # scale by Row/Col spacing, change out generic labels
+    ns_per_s = 1e9
+    iprparts.chip.row.rescale(spacing_rc[0] * ns_per_s, name="Range: ΔTOA", units="ns")
+    iprparts.chip.col.rescale(spacing_rc[1], name="Azimuth: Δfdop", units="Hz")
+
+    # Change out generic labels
+    iprparts.vs_row.domain.name = "Range: ΔTOA"
+    iprparts.vs_col.domain.name = "Azimuth: Δfdop"
+
+
+def customize_spatialfreq_axes(k_iprparts: _ipr.IprParts, spacing_rc: Sequence[float]):
+    # Scale to sampling frequency, change out generic labels
+    k_iprparts.chip.row.rescale(1 / spacing_rc[0], name="RF Freq", units="Hz")
+    k_iprparts.chip.col.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
+    k_iprparts.vs_row.domain.rescale(1 / spacing_rc[0], name="RF Freq", units="Hz")
+    k_iprparts.vs_col.domain.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
+
+
+def _get_all_features(geojson):
+    """Iterate over each feature in a GeoJSON"""
+    # TODO: move this to a common place
+    if geojson["type"] == "Feature":
+        return [geojson]
+    elif geojson["type"] == "FeatureCollection":
+        return geojson["features"]
+    return []
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=textwrap.dedent("""
+            Analyze target IPRs in a CPHD
+
+            Produces:
+
+            cphd_ipr.json
+                Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
+                results. Existing properties, if present, are maintained in the "original_properties" member.
+            cphd_ipr${index}[-${feature_id}]-${ch_id}.html
+                IPR plot for a given feature and channel.
+        """),
+    )
+    parser.add_argument(
+        "cphd_file", help="Input CPHD file (must have Antenna metadata)"
+    )
+    parser.add_argument("geojson_file", help="Input GeoJSON file")
+    parser.add_argument("out_dir", help="Directory to store results", type=pathlib.Path)
+    channel_group = parser.add_argument_group(
+        title="Channel Selection",
+        description="If these arguments are omitted, all channels are used.",
+    )
+    channel_group.add_argument(
+        "--ref-chan", action="store_true", help="include the reference channel"
+    )
+    channel_group.add_argument(
+        "--chan",
+        action="extend",
+        nargs="+",
+        help="identifier of channel to analyze",
+    )
+    config = parser.parse_args(args)
+
+    # channel selection
+    ch_ids = config.chan or []
+
+    with open(config.geojson_file, "rb") as file:
+        geo = json.load(file)
+
+    with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
+        if r.metadata.xmltree.find("{*}Antenna") is None:
+            raise ValueError("CPHD must have antenna metadata")
+
+        if config.ref_chan:
+            ch_ids.append(r.metadata.xmltree.findtext("{*}Channel/{*}RefChId"))
+        if not ch_ids:
+            ch_ids = [
+                x.text
+                for x in r.metadata.xmltree.findall(
+                    "{*}Channel/{*}Parameters/{*}Identifier"
+                )
+            ]
+        ch_ids = sorted(set(ch_ids))
+        analyze(r, geo, ch_ids, config.out_dir)
+
+
+if __name__ == "__main__":
+    main()

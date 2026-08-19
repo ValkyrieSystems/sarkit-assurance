@@ -474,12 +474,8 @@ def sicd_xml():
     return good_sicd_xml_path
 
 
-@pytest.fixture(scope="session")
-def example_sicd(tmp_path_factory):
+def make_sicd(pixel_type, sicd_path):
     sicd_etree = lxml.etree.parse(good_sicd_xml_path)
-    tmp_sicd = (
-        tmp_path_factory.mktemp("data") / good_sicd_xml_path.with_suffix(".sicd").name
-    )
     sec = {"security": {"clas": "U"}}
     sicd_meta = sksicd.NitfMetadata(
         xmltree=sicd_etree,
@@ -489,11 +485,37 @@ def example_sicd(tmp_path_factory):
     )
     nrows = int(sicd_etree.findtext("{*}ImageData/{*}NumRows"))
     ncols = int(sicd_etree.findtext("{*}ImageData/{*}NumCols"))
-    pixel_type = sicd_etree.findtext("{*}ImageData/{*}PixelType")
+    sicd_etree.find("{*}ImageData/{*}PixelType").text = pixel_type
     dtype = sksicd.PIXEL_TYPES[pixel_type]["dtype"]
-    with open(tmp_sicd, "wb") as f, sksicd.NitfWriter(f, sicd_meta) as w:
-        w.write_image(_random_array((nrows, ncols), dtype))
-    yield tmp_sicd
+    img = np.zeros((nrows, ncols), dtype)
+
+    rng = np.random.default_rng(12345)
+    points = rng.normal(scale=24, size=(nrows, ncols, 2))
+
+    if pixel_type == "RE32F_IM32F":
+        img[...] = points @ np.array([1, 1j])
+    elif pixel_type == "RE16I_IM16I":
+        img["real"] = points[..., 0]
+        img["imag"] = points[..., 1]
+    elif pixel_type == "AMP8I_PHS8I":
+        img["amp"] = points[..., 0]
+        img["phase"] = points[..., 1]
+
+    with open(sicd_path, "wb") as f, sksicd.NitfWriter(f, sicd_meta) as w:
+        w.write_image(img)
+    return sicd_path
+
+
+@pytest.fixture(scope="session")
+def example_sicd(tmp_path_factory):
+    tmp_sicd = tmp_path_factory.mktemp("data") / "example.sicd"
+    return make_sicd("RE16I_IM16I", tmp_sicd)
+
+
+@pytest.fixture(scope="session")
+def example_sicd_cf8(tmp_path_factory):
+    tmp_sicd = tmp_path_factory.mktemp("data") / "example-cf8.sicd"
+    return make_sicd("RE32F_IM32F", tmp_sicd)
 
 
 @pytest.fixture(scope="session")
