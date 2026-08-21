@@ -6,12 +6,12 @@ import threading
 from aiohttp import web
 
 
-# Python's built in http.server does not support the Range header.  aoihttp does
+# Python's built in http.server does not support the Range header.  aiohttp does
 def _run_aiohttp_server(app, loop, ready_event, stop_event, msg_queue):
     asyncio.set_event_loop(loop)
     runner = web.AppRunner(app)
     loop.run_until_complete(runner.setup())
-    site = web.TCPSite(runner, "127.0.0.1", 8080)
+    site = web.TCPSite(runner, "127.0.0.1", 0)
     loop.run_until_complete(site.start())
 
     ready_event.set()
