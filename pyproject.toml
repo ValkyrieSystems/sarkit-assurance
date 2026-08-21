@@ -46,7 +46,7 @@ dev-lint = [
     "numpydoc>=1.10.0",
 ]
 dev-test = [
-    "aiohttp>=3.11",
+    "aiohttp>=3.14.3",
     "pytest>=7.4.4",
     "smart_open[http]>=7.1.0",
 ]
