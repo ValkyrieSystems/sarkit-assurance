@@ -10,6 +10,11 @@ import shapely
 
 from . import _sicd_utils, sicd_chip_to_html, sidd_chip_to_html
 
+try:
+    from smart_open import open
+except ImportError:
+    pass
+
 
 def _get_shared_valid_data(data, sicd_xmltree, sidd_xmltree):
     sicd_ew = sksicd.ElementWrapper(sicd_xmltree.getroot())
@@ -43,12 +48,9 @@ def main(args=None):
     parser = argparse.ArgumentParser(
         description="Chip brightest pixel supported in both a SICD and SIDD."
     )
+    parser.add_argument("sicd_file", help="Input SICD file")
     parser.add_argument(
-        "input_sicd_filename", type=pathlib.Path, help="Input SICD file"
-    )
-    parser.add_argument(
-        "input_sidd_filename",
-        type=pathlib.Path,
+        "sidd_file",
         help="Input SIDD file (must be 2.0 or 3.0)",
     )
     parser.add_argument(
@@ -58,11 +60,11 @@ def main(args=None):
     )
     config = parser.parse_args(args)
 
-    with config.input_sidd_filename.open("rb") as f, sksidd.NitfReader(f) as r:
+    with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
         # TODO: This tool uses only ValidData from the first SIDD image
         sidd_xmltree = r.metadata.images[0].xmltree
 
-    with config.input_sicd_filename.open("rb") as f, sksicd.NitfReader(f) as r:
+    with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
         sicd_xmltree = r.metadata.xmltree
         input_sicd_data = r.read_image()
         sicd_ew = sksicd.ElementWrapper(sicd_xmltree.getroot())
@@ -114,12 +116,8 @@ def main(args=None):
     with open(geojson_file, "w") as f:
         json.dump(geojson, f, indent=2)
 
-    sicd_chip_to_html.main(
-        [str(config.input_sicd_filename), str(geojson_file), str(sicd_chip_file)]
-    )
-    sidd_chip_to_html.main(
-        [str(config.input_sidd_filename), str(geojson_file), str(sidd_chip_file)]
-    )
+    sicd_chip_to_html.main([config.sicd_file, str(geojson_file), str(sicd_chip_file)])
+    sidd_chip_to_html.main([config.sidd_file, str(geojson_file), str(sidd_chip_file)])
 
 
 if __name__ == "__main__":

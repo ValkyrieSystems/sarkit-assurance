@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `cphd_ipr` and `sicd_ipr`
 - New dependency: `sarkit-processing`
+- Support for remote file input to `joint_chip_to_html`
 
 ### Changed
 - Lowered minimum version of `scipy` dependency
