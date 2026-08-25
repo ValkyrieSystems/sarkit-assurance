@@ -17,7 +17,7 @@ import sarkit.wgs84
 import sarkit_processing.sicd_pixel_type as skp_sicdpx
 import shapely
 
-from . import _ipr, _sicd_utils, names
+from . import _geojson, _ipr, _sicd_utils, names
 
 try:
     from smart_open import open
@@ -95,7 +95,7 @@ def analyze(
     padded_validdata_xrowycol = get_padded_validdata(ew)
     working_geojson = copy.deepcopy(geojson)  # work on a copy to avoid side-effects
     features_to_analyze = []
-    for index, feature in enumerate(_get_all_features(working_geojson)):
+    for index, feature in enumerate(_geojson.features(working_geojson)):
         feature_props: dict[str, Any] = {
             "application": f"{__package__} {importlib.metadata.version(__package__)} | sicd_ipr",
             "core_name": ew["CollectionInfo"]["CoreName"],
@@ -105,7 +105,7 @@ def analyze(
         if (orig_properties := feature.get("properties")) is not None:
             feature_props["original_properties"] = orig_properties
         feature["properties"] = feature_props
-        coord_llh = _ipr.get_feature_point(feature)
+        coord_llh = _geojson.get_feature_point(feature)
         coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
         coord_xrowycol, _, success = sksicd.scene_to_image(sicd_xmltree, coord_ecef)
         if not success:
@@ -370,16 +370,6 @@ def get_table_info(ew: sksicd.ElementWrapper) -> list[tuple[str, str]]:
     for fname in ("STBeamComp", "ImageBeamComp", "AzAutofocus", "RgAutofocus"):
         info.append((fname, ew["ImageFormation"][fname]))
     return info
-
-
-def _get_all_features(geojson):
-    """Iterate over each feature in a GeoJSON"""
-    # TODO: move this to a common place
-    if geojson["type"] == "Feature":
-        return [geojson]
-    elif geojson["type"] == "FeatureCollection":
-        return geojson["features"]
-    return []
 
 
 def main(args=None):

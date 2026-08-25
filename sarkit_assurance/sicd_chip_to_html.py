@@ -13,9 +13,7 @@ import sarkit.sicd as sksicd
 import sarkit.wgs84
 import shapely.geometry as shg
 
-from sarkit_assurance import _remap
-
-from . import _sicd_utils
+from . import _geojson, _remap, _sicd_utils
 
 try:
     from smart_open import open
@@ -47,12 +45,11 @@ def create_sicd_chip_plot(reader: sksicd.NitfReader, feature: dict):
     dict
         GeoJSON Feature
     """
-    coordinates = np.asarray(feature["geometry"]["coordinates"], dtype=np.float64)
-    if feature["geometry"]["type"] != "Point" or coordinates.shape != (3,):
-        logging.warning("Only 3D Point features are supported")
+    try:
+        coord_llh = _geojson.get_feature_point(feature)
+    except ValueError as exc:
+        logging.warning(exc)
         return None
-
-    coord_llh = [coordinates[1], coordinates[0], coordinates[2]]
     coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
 
     xmltree = reader.metadata.xmltree
@@ -194,15 +191,6 @@ def write_html_file(
     pathlib.Path(html_filename).write_text("\n".join(htmllines), encoding="utf=8")
 
 
-def _get_all_features(geojson):
-    """Iterate over each feature in a GeoJSON"""
-    if geojson["type"] == "Feature":
-        return [geojson]
-    elif geojson["type"] == "FeatureCollection":
-        return geojson["features"]
-    return []
-
-
 def main(args=None):
     parser = argparse.ArgumentParser(description="Plot GeoJSON Features")
     parser.add_argument("sicd_file", help="Input SICD file")
@@ -215,7 +203,7 @@ def main(args=None):
 
     plots = []
     with open(config.sicd_file, "rb") as file, sksicd.NitfReader(file) as reader:
-        for feature in _get_all_features(geo):
+        for feature in _geojson.features(geo):
             plot = create_sicd_chip_plot(reader, feature)
             if plot is None:
                 continue

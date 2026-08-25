@@ -11,19 +11,6 @@ import sarkit_assurance.sidd_chip_to_html as scth
 import tests.utils
 
 
-def test_all_features():
-    single = {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [0, 0, 0]},
-    }
-    assert len(scth._get_all_features(single)) == 1
-
-    assert len(scth._get_all_features(single["geometry"])) == 0
-
-    multi = {"type": "FeatureCollection", "features": [single, single, single]}
-    assert len(scth._get_all_features(multi)) == 3
-
-
 def _get_ref_pt_llh(xmltree):
     ref_pt_ecef = sksidd.ElementWrapper(
         xmltree.getroot().findall("./{*}Measurement//{*}ReferencePoint")[0]

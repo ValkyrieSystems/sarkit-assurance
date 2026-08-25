@@ -3,7 +3,6 @@
 import dataclasses
 import json
 from collections.abc import Sequence
-from typing import Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -636,13 +635,3 @@ def plot_ipr(
         )
 
     return fig
-
-
-def get_feature_point(feature: dict[str, Any]) -> np.ndarray:
-    """Return the point location (lat, lon, hae) from a GeoJSON feature."""
-    # TODO: probably move this to a more common, geojson utils place
-    coordinates = np.asarray(feature["geometry"]["coordinates"], dtype=np.float64)
-    if feature["geometry"]["type"] != "Point" or coordinates.shape != (3,):
-        raise ValueError("Only 3D Point features are supported")
-    # swap lon/lat
-    return coordinates[[1, 0, 2]]
