@@ -20,7 +20,7 @@ import sarkit_processing.remocomp as skp_remo
 import scipy.fft
 import shapely
 
-from . import _ipr, names
+from . import _geojson, _ipr, names
 
 try:
     from smart_open import open
@@ -178,12 +178,12 @@ def analyze(
     """
     cphd_xmltree = cphd_reader.metadata.xmltree
     working_geojson = copy.deepcopy(geojson)  # work on a copy to avoid side-effects
-    for index, feature in enumerate(_get_all_features(working_geojson)):
+    for index, feature in enumerate(_geojson.features(working_geojson)):
         feature_props: dict[str, Any] = {"index": index}
         if (orig_properties := feature.get("properties")) is not None:
             feature_props["original_properties"] = orig_properties
         feature["properties"] = feature_props
-        coord_llh = _ipr.get_feature_point(feature)
+        coord_llh = _geojson.get_feature_point(feature)
         coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
         try:
             coord_iac = ecef_to_scene_transform(cphd_xmltree, coord_ecef)
@@ -236,7 +236,7 @@ def _analyze_channel(
     padded_imagearea_iac = imagearea_iac.buffer(NUM_IAC_PAD, quad_segs=4)
     features_to_analyze = []
 
-    for feature in _get_all_features(geojson):
+    for feature in _geojson.features(geojson):
         coord_iac = feature["properties"]["projected_location_iac"]
         if coord_iac is None:
             continue  # skip as ecef_to_scene must've gone wrong
@@ -391,7 +391,7 @@ def extract_iprparts(
             )
             continue
 
-        tgt_llh = _ipr.get_feature_point(feature)
+        tgt_llh = _geojson.get_feature_point(feature)
         tgt_ecef = sarkit.wgs84.geodetic_to_cartesian(tgt_llh)
         this_signal, these_pvps = skp_remo.remocomp_cphd_chan(
             cphd_reader,
@@ -576,16 +576,6 @@ def customize_spatialfreq_axes(k_iprparts: _ipr.IprParts, spacing_rc: Sequence[f
     k_iprparts.chip.col.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
     k_iprparts.vs_row.domain.rescale(1 / spacing_rc[0], name="RF Freq", units="Hz")
     k_iprparts.vs_col.domain.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
-
-
-def _get_all_features(geojson):
-    """Iterate over each feature in a GeoJSON"""
-    # TODO: move this to a common place
-    if geojson["type"] == "Feature":
-        return [geojson]
-    elif geojson["type"] == "FeatureCollection":
-        return geojson["features"]
-    return []
 
 
 def main(args=None):
