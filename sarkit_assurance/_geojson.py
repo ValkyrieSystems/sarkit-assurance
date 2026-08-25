@@ -1,4 +1,4 @@
-""" "Functions for working with GeoJSON"""
+"""Functions for working with GeoJSON"""
 
 from typing import Any, Iterator
 
