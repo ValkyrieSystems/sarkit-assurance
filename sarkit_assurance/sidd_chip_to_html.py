@@ -13,7 +13,7 @@ import sarkit.sidd as sksidd
 import sarkit.wgs84
 import shapely.geometry as shg
 
-from sarkit_assurance import _remap
+from . import _geojson, _remap
 
 try:
     from smart_open import open
@@ -138,12 +138,12 @@ def create_sidd_chip_plot(image, ew, feature):
     dict
         GeoJSON Feature
     """
-    coordinates = np.asarray(feature["geometry"]["coordinates"], dtype=np.float64)
-    if feature["geometry"]["type"] != "Point" or coordinates.shape != (3,):
-        logging.warning("Only 3D Point features are supported")
+    try:
+        coord_llh = _geojson.get_feature_point(feature)
+    except ValueError as exc:
+        logging.warning(exc)
         return None
 
-    coord_llh = [coordinates[1], coordinates[0], coordinates[2]]
     coord_ecef = sarkit.wgs84.geodetic_to_cartesian(coord_llh)
 
     image_shape = np.array(ew["Measurement"]["PixelFootprint"])
@@ -281,15 +281,6 @@ def write_html_file(html_filename, image_plot_dict, extra_metadata):
     pathlib.Path(html_filename).write_text("\n".join(htmllines), encoding="utf=8")
 
 
-def _get_all_features(geojson):
-    """Iterate over each feature in a GeoJSON"""
-    if geojson["type"] == "Feature":
-        return [geojson]
-    elif geojson["type"] == "FeatureCollection":
-        return geojson["features"]
-    return []
-
-
 def _get_image(reader, image_num):
     img_meta = reader.metadata.images[image_num]
     arr = reader.read_image(image_num)
@@ -328,7 +319,7 @@ def main(args=None):
             xmltree = reader.metadata.images[image_num].xmltree
             sidd_ew = sksidd.ElementWrapper(xmltree.getroot())
             image = _get_image(reader, image_num)
-            for feature in _get_all_features(geo):
+            for feature in _geojson.features(geo):
                 plot = create_sidd_chip_plot(image, sidd_ew, feature)
                 if plot is None:
                     continue

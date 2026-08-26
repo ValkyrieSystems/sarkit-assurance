@@ -11,19 +11,6 @@ import sarkit_assurance.sicd_chip_to_html as scth
 import tests.utils
 
 
-def test_all_features():
-    single = {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [0, 0, 0]},
-    }
-    assert len(scth._get_all_features(single)) == 1
-
-    assert len(scth._get_all_features(single["geometry"])) == 0
-
-    multi = {"type": "FeatureCollection", "features": [single, single, single]}
-    assert len(scth._get_all_features(multi)) == 3
-
-
 @pytest.mark.parametrize("remove_validdata", (False, True))
 def test_sicd_chip_to_html(tmp_path, example_sicd, remove_validdata):
     with open(example_sicd, "rb") as file, sksicd.NitfReader(file) as reader:
