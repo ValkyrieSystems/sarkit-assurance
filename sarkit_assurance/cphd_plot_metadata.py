@@ -18,7 +18,7 @@ import scipy.constants
 import shapely
 import shapely.geometry as shg
 
-from . import _plot_metadata, utils
+from . import _cli, _plot_metadata, utils
 
 try:
     from smart_open import open
@@ -1309,24 +1309,11 @@ def main(args=None):
         action="store_true",
         help="plot all support arrays. Default is to plot only support arrays referenced by a plotted channel",
     )
-    channel_group = parser.add_mutually_exclusive_group()
-    channel_group.add_argument(
-        "--ref-chan", action="store_true", help="only use the reference channel's PVPs"
-    )
-    channel_group.add_argument(
-        "--chan",
-        action="extend",
-        nargs="+",
-        help="use the specified channels' PVPs (default: all)",
-    )
+    _cli.add_cphd_chan_arg_group(parser)
     config = parser.parse_args(args)
 
     with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        if config.ref_chan:
-            channels = [r.metadata.xmltree.findtext("{*}Channel/{*}RefChId")]
-        else:
-            channels = config.chan
-
+        channels = _cli.selected_cphd_channels(r.metadata.xmltree, config)
         f.seek(0)
         plotter = Plotter(
             f,

@@ -20,7 +20,7 @@ import sarkit_processing.remocomp as skp_remo
 import scipy.fft
 import shapely
 
-from . import _geojson, _ipr, names
+from . import _cli, _geojson, _ipr, names
 
 try:
     from smart_open import open
@@ -598,23 +598,8 @@ def main(args=None):
     )
     parser.add_argument("geojson_file", help="Input GeoJSON file")
     parser.add_argument("out_dir", help="Directory to store results", type=pathlib.Path)
-    channel_group = parser.add_argument_group(
-        title="Channel Selection",
-        description="If these arguments are omitted, all channels are used.",
-    )
-    channel_group.add_argument(
-        "--ref-chan", action="store_true", help="include the reference channel"
-    )
-    channel_group.add_argument(
-        "--chan",
-        action="extend",
-        nargs="+",
-        help="identifier of channel to analyze",
-    )
+    _cli.add_cphd_chan_arg_group(parser)
     config = parser.parse_args(args)
-
-    # channel selection
-    ch_ids = config.chan or []
 
     with open(config.geojson_file, "rb") as file:
         geo = json.load(file)
@@ -623,16 +608,7 @@ def main(args=None):
         if r.metadata.xmltree.find("{*}Antenna") is None:
             raise ValueError("CPHD must have antenna metadata")
 
-        if config.ref_chan:
-            ch_ids.append(r.metadata.xmltree.findtext("{*}Channel/{*}RefChId"))
-        if not ch_ids:
-            ch_ids = [
-                x.text
-                for x in r.metadata.xmltree.findall(
-                    "{*}Channel/{*}Parameters/{*}Identifier"
-                )
-            ]
-        ch_ids = sorted(set(ch_ids))
+        ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
         analyze(r, geo, ch_ids, config.out_dir)
 
 

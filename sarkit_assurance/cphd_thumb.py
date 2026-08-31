@@ -5,7 +5,7 @@ import numpy as np
 import sarkit.cphd as skcphd
 from PIL import Image
 
-from . import names
+from . import _cli, names
 
 try:
     from smart_open import open
@@ -48,33 +48,18 @@ def main(args=None):
         help="Path to output thumbnail(s). The string '{ch_id}' will be replaced with channel identifier.",
     )
     parser.add_argument(
-        "--channel-id",
-        action="append",
-        help=(
-            "Identifier of channel to use. May be specified more than once. "
-            "If unspecified, a thumbnail for each channel is generated."
-        ),
-    )
-    parser.add_argument(
         "--num-mebipixels",
         default=1.0,
         type=float,
         help="Maximum number of mebipixels to output",
     )
+    _cli.add_cphd_chan_arg_group(parser)
     config = parser.parse_args(args)
 
     output_size = config.num_mebipixels * 2**20
 
     with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        actual_ch_ids = [
-            x.text
-            for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
-        ]
-        ch_ids = set(config.channel_id or actual_ch_ids)
-        bad_channel_ids = ch_ids.difference(actual_ch_ids)
-        if bad_channel_ids:
-            raise ValueError(f"{bad_channel_ids=}")
-
+        ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
         thumbnames = {
             ch_id: config.thumbnail_file.format(ch_id=names.sanitize_name(ch_id))
             for ch_id in ch_ids

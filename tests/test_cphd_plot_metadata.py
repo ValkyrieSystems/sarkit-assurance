@@ -127,10 +127,11 @@ def test_main_channel_args(tmp_path, multichan_cphd):
             x.text
             for x in r.metadata.xmltree.findall("{*}Data/{*}Channel/{*}Identifier")
         ]
+        nonref_chan = (set(all_channels) - {ref_channel}).pop()
     for chan_args, expected_channels in [
         ([], all_channels),
         (["--ref-chan"], [ref_channel]),
-        ([f"--chan={ref_channel}"], [ref_channel]),
+        ([f"--chan={nonref_chan}", "--ref-chan"], [ref_channel, nonref_chan]),
         (["--chan"] + all_channels, all_channels),
     ]:
         subprocess.check_call(
