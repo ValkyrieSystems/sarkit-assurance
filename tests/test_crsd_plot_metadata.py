@@ -16,11 +16,11 @@ from sarkit_assurance.crsd_plot_metadata import main
     [
         (
             "example_crsdsar",
-            ["--ref-seq", "--ref-chan"],
+            ["--ref-seq"],
         ),
         (
             "example_crsdsar",
-            ["--ref-seq"],
+            ["--ref-chan"],
         ),
         (
             "multi_crsdsar",
@@ -69,7 +69,7 @@ def test_main_bad_arg_list(tmp_path, fixture_name, test_args, request):
     file = request.getfixturevalue(fixture_name)
 
     with file.open("rb"):
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError):
             main([str(file), str(tmp_path), "-q"] + test_args)
 
 
@@ -83,8 +83,6 @@ def test_main_output_dir(tmp_path, example_crsdsar):
             "sarkit_assurance.crsd_plot_metadata",
             str(example_crsdsar),
             str(outdir),
-            "--ref-chan",
-            "--ref-seq",
             "-q",
         ],
         cwd=tmp_path,
@@ -282,19 +280,6 @@ def test_main_bad_seq_arg_list(tmp_path, multi_crsdsar):
                 "--ref-seq",
                 "--seq",
                 "NOT_A_SEQUENCE",
-            ]
-        )
-
-
-def test_main_missing_chan_seq_list(tmp_path, multi_crsdsar):
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(
-            [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.crsd_plot_metadata",
-                str(multi_crsdsar),
-                str(tmp_path),
             ]
         )
 

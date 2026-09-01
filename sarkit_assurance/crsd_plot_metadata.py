@@ -49,7 +49,6 @@ class Plotter(_plot_metadata.Plotter):
         with skcrsd.Reader(file) as r:
             self.xml = r.metadata.xmltree
             self.ew = skcrsd.ElementWrapper(self.xml.getroot())
-            crsd_type = lxml.etree.QName(self.xml.getroot()).localname
             all_channels = [
                 x.text
                 for x in self.xml.findall("{*}Channel/{*}Parameters/{*}Identifier")
@@ -73,11 +72,6 @@ class Plotter(_plot_metadata.Plotter):
                         f"Must be from: {all_channels}"
                     )
                 )
-            if crsd_type == "CRSDsar":
-                for chan in channels:
-                    param = self.ew["Channel"].find("Parameters", Identifier=chan)
-                    tx_id = param["SARImage"]["TxId"]
-                    sequences.append(tx_id)
             self.channels = list(set(channels))
             self.sequences = list(set(sequences))
             self.pvps = {ch_id: r.read_pvps(ch_id) for ch_id in self.channels}
@@ -896,29 +890,35 @@ def main(args=None):
         help="directory where output plot(s) will be placed",
     )
 
-    channel_group = parser.add_argument_group()
-    channel_group.add_argument(
-        "--chan", nargs="+", help="use the specified channels' PVPs"
+    channel_group = parser.add_argument_group(
+        title="Channel Selection",
+        description=(
+            "If these arguments are omitted, all channels are used. CRSDsar channels also select the relevant "
+            "transmit pulse sequences."
+        ),
     )
     channel_group.add_argument(
-        "--ref-chan", action="store_true", help="use the reference channels' PVPs"
+        "--ref-chan", action="store_true", help="include the reference channel"
     )
     channel_group.add_argument(
-        "--all-chan", action="store_true", help="use all channels' PVPs"
+        "--chan",
+        nargs="+",
+        help="channel identifier(s) to include",
     )
 
-    sequence_group = parser.add_argument_group()
+    sequence_group = parser.add_argument_group(
+        title="Transmit Sequence Selection",
+        description="If these arguments are omitted, all sequences are used.",
+    )
+    sequence_group.add_argument(
+        "--ref-seq", action="store_true", help="include the reference transmit sequence"
+    )
     sequence_group.add_argument(
         "--seq",
         nargs="+",
-        help="use the specified sequences' PPPs",
+        help="transmit sequence identifier(s) to include",
     )
-    sequence_group.add_argument(
-        "--ref-seq", action="store_true", help="use the reference sequences' PPPs"
-    )
-    sequence_group.add_argument(
-        "--all-seq", action="store_true", help="use all sequences' PPPs"
-    )
+
     parser.add_argument(
         "-p",
         "--prefix",
@@ -941,64 +941,64 @@ def main(args=None):
     config = parser.parse_args(args)
 
     with open(config.crsd_file, "rb") as f, skcrsd.Reader(f) as r:
-        crsd_type = lxml.etree.QName(r.metadata.xmltree.getroot()).localname
-        if crsd_type == "CRSDtx" and not (
-            config.seq or config.ref_seq or config.all_seq
-        ):
-            parser.error("One of [--seq|--ref-seq|--all-seq] is required with CRSDtx")
-        if crsd_type == "CRSDtx" and (
-            config.chan or config.ref_chan or config.all_chan
-        ):
-            parser.error("[--chan|--ref-chan|--all-chan] is not valid with CRSDtx")
-        if crsd_type == "CRSDrcv" and not (
-            config.chan or config.ref_chan or config.all_chan
-        ):
-            parser.error(
-                "One of [--chan|--ref-chan|--all-chan] is required with CRSDrcv"
+        xmltree = r.metadata.xmltree
+        crsd_type = lxml.etree.QName(xmltree.getroot()).localname
+
+        # channel selection
+        ch_ids = set()
+        if config.chan:
+            ch_ids.update(config.chan)
+        if config.ref_chan:
+            ref_ch_id = xmltree.findtext("{*}Channel/{*}RefChId")
+            if ref_ch_id is None:
+                raise ValueError("Does not have a RefChId")
+            ch_ids.add(ref_ch_id)
+
+        all_ch_ids = [
+            x.text for x in xmltree.findall("{*}Channel/{*}Parameters/{*}Identifier")
+        ]
+        if not ch_ids:
+            ch_ids = sorted(all_ch_ids)
+        else:
+            unrecognized = ch_ids.difference(all_ch_ids)
+            if unrecognized:
+                raise ValueError(f"Unrecognized channel(s): {unrecognized}")
+            ch_ids = sorted(ch_ids)
+
+        # tx sequence selection
+        tx_ids = set()
+        if config.seq:
+            tx_ids.update(config.seq)
+        if config.ref_seq:
+            ref_tx_id = xmltree.findtext("{*}TxSequence/{*}RefTxId")
+            if ref_tx_id is None:
+                raise ValueError("Does not have a RefTxId")
+            tx_ids.add(ref_tx_id)
+        if crsd_type == "CRSDsar":
+            tx_ids.update(
+                xmltree.findtext(
+                    f"{{*}}Channel/{{*}}Parameters[{{*}}Identifier='{c}']/{{*}}SARImage/{{*}}TxId"
+                )
+                for c in ch_ids
             )
-        if crsd_type == "CRSDrcv" and (config.seq or config.ref_seq or config.all_seq):
-            parser.error("[--seq|--ref-seq|--all-seq] is not valid with CRSDrcv")
 
-        def get_channels(config, xml):
-            all_channels = [
-                x.text for x in xml.findall("{*}Channel/{*}Parameters/{*}Identifier")
-            ]
-            if config.all_chan:
-                return all_channels
-
-            channels = []
-            if config.ref_chan:
-                channels.append(xml.findtext("./{*}Channel/{*}RefChId"))
-            if config.chan:
-                channels.extend(config.chan)
-            return channels
-
-        def get_sequences(config, xml):
-            all_sequences = [
-                x.text for x in xml.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
-            ]
-            if config.all_seq:
-                return all_sequences
-
-            sequences = []
-            if config.ref_seq:
-                sequences.append(xml.findtext("./{*}TxSequence/{*}RefTxId"))
-            if config.seq:
-                sequences.extend(config.seq)
-            return sequences
-
-        channels = get_channels(config, r.metadata.xmltree)
-        sequences = get_sequences(config, r.metadata.xmltree)
-
-        if crsd_type == "CRSDsar" and not channels and not sequences:
-            parser.error("At least one channel or sequence is required with CRSDsar")
+        all_tx_ids = [
+            x.text for x in xmltree.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
+        ]
+        if not tx_ids:
+            tx_ids = sorted(all_tx_ids)
+        else:
+            unrecognized = tx_ids.difference(all_tx_ids)
+            if unrecognized:
+                raise ValueError(f"Unrecognized transmit sequence(s): {unrecognized}")
+            tx_ids = sorted(tx_ids)
 
         f.seek(0)
         plotter = Plotter(
             f,
             html.escape(config.crsd_file),
-            channels=channels,
-            sequences=sequences,
+            channels=ch_ids,
+            sequences=tx_ids,
             include_fixed_pxps=config.plot_fixed,
         )
     save_func = plotter.save_combined if config.concatenate else plotter.save_separate
