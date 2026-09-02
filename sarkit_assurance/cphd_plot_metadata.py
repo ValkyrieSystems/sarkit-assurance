@@ -801,12 +801,9 @@ class Plotter(_plot_metadata.Plotter):
             chan_param_ew = skcphd.ElementWrapper(chan_param)
             cod_id = chan_param_ew["DwellTimes"]["CODId"]
             dwell_id = chan_param_ew["DwellTimes"]["DwellId"]
-            cod_poly_info.setdefault(cod_id, {})[chan] = get_valid_area(
-                self.xml, chan_param_ew
-            )
-            dwell_poly_info.setdefault(dwell_id, {})[chan] = get_valid_area(
-                self.xml, chan_param_ew
-            )
+            chan_area = shapely.Polygon(skcphd.get_channel_image_area(self.xml, chan))
+            cod_poly_info.setdefault(cod_id, {})[chan] = chan_area
+            dwell_poly_info.setdefault(dwell_id, {})[chan] = chan_area
 
         def plot_dt_poly(dt_type, dt_id, chan_info):
             poly_elem = self.xml.find(
@@ -1086,52 +1083,19 @@ def _make_image_area(area_ew, name=None, colors=None):
     return rect, poly
 
 
-def get_valid_area(xmltree, chan_param_ew):
-    ew = skcphd.ElementWrapper(xmltree.getroot())
-
-    def get_imagearea_poly(imgarea_ew):
-        region = shg.box(*imgarea_ew["X1Y1"], *imgarea_ew["X2Y2"])
-        if (poly := imgarea_ew.get("Polygon", None)) is not None:
-            region = region.intersection(shg.Polygon(poly))
-        return region
-
-    ia_poly = get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
-    if "ImageArea" in chan_param_ew:
-        ia_poly = get_imagearea_poly(chan_param_ew["ImageArea"])
-    return ia_poly
-
-
-def get_target_dwelltimes(target_ia_coords, xmltree, chan_param_ew):
-    dwell_id = chan_param_ew["DwellTimes"]["DwellId"]
-    cod_id = chan_param_ew["DwellTimes"]["CODId"]
-
-    dwell_elem = xmltree.find(
-        f'{{*}}Dwell/{{*}}DwellTime[{{*}}Identifier="{dwell_id}"]/{{*}}DwellTimePoly'
-    )
-    cod_elem = xmltree.find(
-        f'{{*}}Dwell/{{*}}CODTime[{{*}}Identifier="{cod_id}"]/{{*}}CODTimePoly'
-    )
-
-    dwell_poly = skcphd.Poly2dType().parse_elem(dwell_elem)
-    cod_poly = skcphd.Poly2dType().parse_elem(cod_elem)
-
-    dwell_times = npp.polyval2d(
-        target_ia_coords[..., 0], target_ia_coords[..., 1], dwell_poly
-    )
-    cod_times = npp.polyval2d(
-        target_ia_coords[..., 0], target_ia_coords[..., 1], cod_poly
-    )
-    return cod_times, dwell_times
-
-
 def get_valid_target_dwell(
     xmltree, chan_param_ew, target_grid_size=11, dwell_grid_size=11
 ):
     """Return a set of targets spanning a channel's image area along with times spanning their dwell"""
-    ia_poly = get_valid_area(xmltree, chan_param_ew)
+    ia_poly = shapely.Polygon(
+        skcphd.get_channel_image_area(xmltree, chan_param_ew["Identifier"])
+    )
     target_ia_coords = utils.get_samples_in_poly(ia_poly, grid_size=target_grid_size)
-    cod_times, dwell_times = get_target_dwelltimes(
-        target_ia_coords, xmltree, chan_param_ew
+    cod_times, dwell_times = skcphd.compute_dwelltimes_using_poly(
+        chan_param_ew["Identifier"],
+        target_ia_coords[..., 0],
+        target_ia_coords[..., 1],
+        xmltree,
     )
 
     target_ecef_coords = skcphd.iac_to_ecf(xmltree, target_ia_coords)
