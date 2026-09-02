@@ -343,20 +343,17 @@ class Plotter(_plot_metadata.Plotter):
         for chan in self.channels:
             chan_param_ew = self.ew["Channel"].find("Parameters", Identifier=chan)
             dt_ew = chan_param_ew["SARImage"]["DwellTimes"]
+            chan_imgarea = shapely.Polygon(
+                skcrsd.get_channel_image_area(self.xml, chan)
+            )
             if "Polynomials" in dt_ew:
                 cod_id = dt_ew["Polynomials"]["CODId"]
                 dwell_id = dt_ew["Polynomials"]["DwellId"]
-                cod_poly_info.setdefault(cod_id, {})[chan] = get_valid_area(
-                    self.xml, chan_param_ew
-                )
-                dwell_poly_info.setdefault(dwell_id, {})[chan] = get_valid_area(
-                    self.xml, chan_param_ew
-                )
+                cod_poly_info.setdefault(cod_id, {})[chan] = chan_imgarea
+                dwell_poly_info.setdefault(dwell_id, {})[chan] = chan_imgarea
             else:
                 dta_id = dt_ew["Array"]["DTAId"]
-                dta_info.setdefault(dta_id, {})[chan] = get_valid_area(
-                    self.xml, chan_param_ew
-                )
+                dta_info.setdefault(dta_id, {})[chan] = chan_imgarea
         channel_colors = dict(
             zip(self.channels, itertools.cycle(plotly.colors.qualitative.Plotly))
         )
@@ -700,7 +697,9 @@ class Plotter(_plot_metadata.Plotter):
         self, chan_param_ew, target_grid_size=11, dwell_grid_size=11
     ):
         """Return a set of targets spanning a channel's image area along with times spanning their dwell"""
-        ia_poly = get_valid_area(self.xml, chan_param_ew)
+        ia_poly = shapely.Polygon(
+            skcrsd.get_channel_image_area(self.xml, chan_param_ew["Identifier"])
+        )
         target_ia_coords = utils.get_samples_in_poly(
             ia_poly, grid_size=target_grid_size
         )
@@ -1008,21 +1007,6 @@ def main(args=None):
         else config.prefix
     )
     save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
-
-
-def get_valid_area(xmltree, chan_param_ew):
-    ew = skcrsd.ElementWrapper(xmltree.getroot())
-
-    def get_imagearea_poly(imgarea_ew):
-        region = shg.box(*imgarea_ew["X1Y1"], *imgarea_ew["X2Y2"])
-        if (poly := imgarea_ew.get("Polygon", None)) is not None:
-            region = region.intersection(shg.Polygon(poly))
-        return region
-
-    ia_poly = get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
-    if "SARImage" in chan_param_ew:
-        ia_poly = get_imagearea_poly(chan_param_ew["SARImage"]["ImageArea"])
-    return ia_poly
 
 
 pad_geom = cphd_plot_metadata.pad_geom

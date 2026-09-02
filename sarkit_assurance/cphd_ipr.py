@@ -110,40 +110,6 @@ def ecef_to_scene_transform(
     raise RuntimeError(f"Failed to converge to {max_err} after {max_iters} iterations")
 
 
-def _get_imagearea_poly(imgarea_ew, *, use_polygon=True):
-    region = shapely.box(*imgarea_ew["X1Y1"], *imgarea_ew["X2Y2"])
-    if use_polygon and (poly := imgarea_ew.get("Polygon", None)) is not None:
-        region = region.intersection(shapely.Polygon(poly))
-    return region
-
-
-def get_channel_image_area(
-    cphd_xmltree: lxml.etree.ElementTree, ch_id: str
-) -> shapely.Polygon:
-    # TODO: move to sarkit
-    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
-    ia_poly = _get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
-    chan_param_ew = ew["Channel"].find("Parameters", Identifier=ch_id)
-    if "ImageArea" in chan_param_ew:
-        ia_poly = _get_imagearea_poly(chan_param_ew["ImageArea"])
-    return ia_poly
-
-
-def get_scene_image_area(cphd_xmltree: lxml.etree.ElementTree) -> shapely.Polygon:
-    # TODO: move to sarkit
-    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
-    return _get_imagearea_poly(ew["SceneCoordinates"]["ImageArea"])
-
-
-def get_extended_image_area(
-    cphd_xmltree: lxml.etree.ElementTree,
-) -> shapely.Polygon | None:
-    # TODO: move to sarkit
-    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
-    imgarea_ew = ew["SceneCoordinates"].get("ExtendedArea", None)
-    return None if imgarea_ew is None else _get_imagearea_poly(imgarea_ew)
-
-
 def analyze(
     cphd_reader: skcphd.Reader,
     geojson: dict[str, Any],
@@ -232,7 +198,7 @@ def _analyze_channel(
     # Find target image coordinates and ensure they are (nearly) within ImageArea
     cphd_xmltree = cphd_reader.metadata.xmltree
     core_name = cphd_xmltree.findtext("{*}CollectionID/{*}CoreName")
-    imagearea_iac = get_channel_image_area(cphd_xmltree, ch_id)
+    imagearea_iac = shapely.Polygon(skcphd.get_channel_image_area(cphd_xmltree, ch_id))
     padded_imagearea_iac = imagearea_iac.buffer(NUM_IAC_PAD, quad_segs=4)
     features_to_analyze = []
 
@@ -267,16 +233,14 @@ def _analyze_channel(
     context_geoms = [
         ("Channel Image Area", shapely.get_coordinates(imagearea_iac.exterior)),
     ]
-    scene_imagearea = get_scene_image_area(cphd_xmltree)
+    scene_imagearea = shapely.Polygon(skcphd.get_scene_image_area(cphd_xmltree))
     if not shapely.equals(imagearea_iac, scene_imagearea):
         context_geoms.append(
             ("Scene Image Area", shapely.get_coordinates(scene_imagearea))
         )
-    extended_imagearea = get_extended_image_area(cphd_xmltree)
+    extended_imagearea = skcphd.get_extended_image_area(cphd_xmltree)
     if extended_imagearea is not None:
-        context_geoms.append(
-            ("Extended Image Area", shapely.get_coordinates(extended_imagearea))
-        )
+        context_geoms.append(("Extended Image Area", extended_imagearea))
     for feature, iprparts in extract_iprparts(
         cphd_reader, features_to_analyze, ch_id, search_size_px=search_size_px
     ):
@@ -373,7 +337,7 @@ def extract_iprparts(
     sgn = int(cphd_reader.metadata.xmltree.findtext("{*}Global/{*}SGN"))
     for feature in features:
         tgt_iax, tgt_iay = feature["properties"]["projected_location_iac"]
-        t_cod, t_dwell = compute_dwelltimes_using_poly(
+        t_cod, t_dwell = skcphd.compute_dwelltimes_using_poly(
             ch_id, tgt_iax, tgt_iay, cphd_reader.metadata.xmltree
         )
         t_start = t_cod - t_dwell / 2
@@ -469,44 +433,6 @@ def condition_signal_in_place(sig_array, pvps):
             end_sample = int(np.round((pvp["FX2"] - pvp["SC0"]) / pvp["SCSS"]))
             sigvec[:start_sample] = 0.0
             sigvec[end_sample + 1 :] = 0.0
-
-
-def compute_dwelltimes_using_poly(
-    ch_id: str,
-    iax: npt.ArrayLike,
-    iay: npt.ArrayLike,
-    cphd_xmltree: lxml.etree.ElementTree,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute center of dwell times and dwell times for scene points using polynomials.
-
-    Parameters
-    ----------
-    ch_id : str
-        Channel unique identifier
-    iax, iay : array_like
-        Image area coordinates (in meters) of the scene points for which to compute the dwell times
-    cphd_xmltree : lxml.etree.ElementTree
-        CPHD XML
-
-    Returns
-    -------
-    t_cod : ndarray
-        Center of dwell times (sec) for the scene points relative to the CollectionStart time
-    t_dwell : ndarray
-       Dwell times (sec) for which the channel signal array contains the echo signals from the scene points
-    """
-    # TODO: move to sarkit
-    iax, iay = np.broadcast_arrays(iax, iay)
-
-    ew = skcphd.ElementWrapper(cphd_xmltree.getroot())
-    chan_dt = ew["Channel"].find("Parameters", Identifier=ch_id)["DwellTimes"]
-    cod_poly = ew["Dwell"].find("CODTime", Identifier=chan_dt["CODId"])["CODTimePoly"]
-    dwell_poly = ew["Dwell"].find("DwellTime", Identifier=chan_dt["DwellId"])[
-        "DwellTimePoly"
-    ]
-    t_cod = npp.polyval2d(iax, iay, cod_poly)
-    t_dwell = npp.polyval2d(iax, iay, dwell_poly)
-    return t_cod, t_dwell
 
 
 def compute_oneway_gain_and_phase_for_vectors(
