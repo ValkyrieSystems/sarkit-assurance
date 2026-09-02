@@ -97,7 +97,7 @@ def test_main(example_sicd_cf8, tmp_path):
     actual_plot_indices = [
         get_feature_index(x.name) for x in outdir.glob("sicd_ipr*.html")
     ]
-    assert actual_plot_indices == expected_plot_indices
+    assert sorted(actual_plot_indices) == sorted(expected_plot_indices)
 
 
 def test_main_unsupported_chip_extent(example_sicd_cf8, tmp_path):
