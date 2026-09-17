@@ -38,7 +38,7 @@ def test_estimate_peak(upsampled_offset):
     z_ds = scipy.signal.resample(scipy.signal.resample(z_us, chip_edge).T, chip_edge).T
     z_ds /= np.abs(z_ds).max()
 
-    offset = -upsampled_offset // resamp_factor
+    offset = -upsampled_offset / resamp_factor
 
     def assert_exact_peak(pk):
         assert pk == pytest.approx(1.0)
@@ -54,11 +54,11 @@ def test_estimate_peak(upsampled_offset):
         assert_peak = assert_interp_peak
 
     offset0, pk0, _ = _ipr.estimate_peak(z_ds, offset_rc=(0.0, 0.0))
-    assert offset0 == pytest.approx(offset, abs=_ipr.UPSAMPLE_RATIO**2)
+    assert offset0 == pytest.approx(offset, abs=5 * (_ipr.UPSAMPLE_RATIO**-2))
     assert_peak(pk0)
 
     offset_off, pk_off, _ = _ipr.estimate_peak(z_ds, offset_rc=offset)
-    assert offset_off == pytest.approx(0.0, abs=_ipr.UPSAMPLE_RATIO**2)
+    assert offset_off == pytest.approx(0.0, abs=5 * (_ipr.UPSAMPLE_RATIO**-2))
     assert_peak(pk_off)
 
     # shifting search window far away and limiting distance doesn't find peak
