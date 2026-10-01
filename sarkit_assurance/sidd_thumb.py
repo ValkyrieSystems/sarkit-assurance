@@ -1,10 +1,13 @@
 import argparse
 import math
+import sys
 import textwrap
 
 import numpy as np
 import sarkit.sidd as sksidd
 from PIL import Image
+
+from . import _cli
 
 try:
     from smart_open import open
@@ -48,60 +51,68 @@ def product_image_thumb(sidd_reader, image_number, thumbnail_file, output_size):
     img.save(thumbnail_file)
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent("""\
-            Create thumbnails from SIDD product images. No attempt is made at SIPS processing.
-            Each thumbnail's image mode is dependent on the PixelType:
-                MONO8I  -> 8-bit, grayscale
-                MONO8LU -> 8-bit or 16-bit, grayscale (depending on lookup table)
-                MONO16I -> 16-bit, grayscale
-                RGB8LU  -> 3x8-bit, true color
-                RGB24I  -> 3x8-bit, true color
-            """),
-    )
-    parser.add_argument("sidd_file", help="Path to input SIDD file")
-    parser.add_argument(
-        "thumbnail_file",
-        help=(
-            "Path to output thumbnail(s). The string '{num}' will be replaced with the image number. "
-            "The format to use is determined from the filename extension."
-        ),
-    )
-    parser.add_argument(
-        "--image-number",
-        action="append",
-        type=int,
-        help=(
-            "0-based index of product image to read. May be specified more than once. "
-            "If unspecified, a thumbnail for each product image is generated."
-        ),
-    )
-    parser.add_argument(
-        "--num-mebipixels",
-        default=1.0,
-        type=float,
-        help="Maximum number of mebipixels to output",
-    )
-    config = parser.parse_args(args)
+class _SiddThumbSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent("""\
+                Create thumbnails from SIDD product images. No attempt is made at SIPS processing.
+                Each thumbnail's image mode is dependent on the PixelType:
+                    MONO8I  -> 8-bit, grayscale
+                    MONO8LU -> 8-bit or 16-bit, grayscale (depending on lookup table)
+                    MONO16I -> 16-bit, grayscale
+                    RGB8LU  -> 3x8-bit, true color
+                    RGB24I  -> 3x8-bit, true color
+                """),
+        )
 
-    output_size = config.num_mebipixels * 2**20
+    def add_arguments(self, parser):
+        parser.add_argument("sidd_file", help="Path to input SIDD file")
+        parser.add_argument(
+            "thumbnail_file",
+            help=(
+                "Path to output thumbnail(s). The string '{num}' will be replaced with the image number. "
+                "The format to use is determined from the filename extension."
+            ),
+        )
+        parser.add_argument(
+            "--image-number",
+            action="append",
+            type=int,
+            help=(
+                "0-based index of product image to read. May be specified more than once. "
+                "If unspecified, a thumbnail for each product image is generated."
+            ),
+        )
+        parser.add_argument(
+            "--num-mebipixels",
+            default=1.0,
+            type=float,
+            help="Maximum number of mebipixels to output",
+        )
 
-    with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
-        actual_img_nums = range(len(r.metadata.images))
-        img_nums = set(config.image_number or actual_img_nums)
-        bad_image_numbers = img_nums.difference(actual_img_nums)
-        if bad_image_numbers:
-            raise ValueError(f"{bad_image_numbers=}")
+    def run_command(self, config):
+        output_size = config.num_mebipixels * 2**20
 
-        thumbnames = {num: config.thumbnail_file.format(num=num) for num in img_nums}
-        if len(set(thumbnames.values())) != len(thumbnames):
-            raise RuntimeError("Duplicate output filenames detected")
+        with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
+            actual_img_nums = range(len(r.metadata.images))
+            img_nums = set(config.image_number or actual_img_nums)
+            bad_image_numbers = img_nums.difference(actual_img_nums)
+            if bad_image_numbers:
+                raise ValueError(f"{bad_image_numbers=}")
 
-        for img_num, thumbname in thumbnames.items():
-            product_image_thumb(r, img_num, thumbname, output_size)
+            thumbnames = {
+                num: config.thumbnail_file.format(num=num) for num in img_nums
+            }
+            if len(set(thumbnames.values())) != len(thumbnames):
+                raise RuntimeError("Duplicate output filenames detected")
 
+            for img_num, thumbname in thumbnames.items():
+                product_image_thumb(r, img_num, thumbname, output_size)
+        return 0
+
+
+main = _SiddThumbSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
