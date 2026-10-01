@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import lxml.etree
 import numpy as np
 import numpy.testing as npt
@@ -13,11 +10,8 @@ import tests.utils
 
 def test_smart_open(tmp_path, example_sicd):
     with tests.utils.static_http_server(example_sicd.parent) as server_url:
-        subprocess.check_call(
+        plot_metadata.main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.sicd_plot_metadata",
                 f"{server_url}/{example_sicd.name}",
                 str(tmp_path),
                 "-q",

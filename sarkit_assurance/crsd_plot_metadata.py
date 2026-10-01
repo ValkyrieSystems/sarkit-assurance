@@ -1,9 +1,9 @@
 """Utilities for generating plots of CRSD metadata"""
 
-import argparse
 import html
 import itertools
 import pathlib
+import sys
 
 import lxml.etree
 import numpy as np
@@ -18,7 +18,7 @@ import scipy.constants
 import shapely
 import shapely.geometry as shg
 
-from . import _plot_metadata, cphd_plot_metadata, names, utils
+from . import _cli, _plot_metadata, cphd_plot_metadata, names, utils
 
 try:
     from smart_open import open
@@ -876,142 +876,155 @@ class Plotter(_plot_metadata.Plotter):
         return list(figs.values())
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        description="Produce various plots of information contained in a CRSD"
-    )
-    parser.add_argument("crsd_file", help="CRSD file to analyze")
-    parser.add_argument(
-        "output_dir",
-        nargs="?",
-        type=pathlib.Path,
-        default=pathlib.Path.cwd(),
-        help="directory where output plot(s) will be placed",
-    )
-
-    channel_group = parser.add_argument_group(
-        title="Channel Selection",
-        description=(
-            "If these arguments are omitted, all channels are used. CRSDsar channels also select the relevant "
-            "transmit pulse sequences."
-        ),
-    )
-    channel_group.add_argument(
-        "--ref-chan", action="store_true", help="include the reference channel"
-    )
-    channel_group.add_argument(
-        "--chan",
-        nargs="+",
-        help="channel identifier(s) to include",
-    )
-
-    sequence_group = parser.add_argument_group(
-        title="Transmit Sequence Selection",
-        description="If these arguments are omitted, all sequences are used.",
-    )
-    sequence_group.add_argument(
-        "--ref-seq", action="store_true", help="include the reference transmit sequence"
-    )
-    sequence_group.add_argument(
-        "--seq",
-        nargs="+",
-        help="transmit sequence identifier(s) to include",
-    )
-
-    parser.add_argument(
-        "-p",
-        "--prefix",
-        help="prefix used in output filenames (Default: {crsd_file.stem}_)",
-    )
-    parser.add_argument(
-        "-c",
-        "--concatenate",
-        action="store_true",
-        help="concatenate plots into single HTML",
-    )
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_false",
-        dest="auto_open",
-        help="don't open plots after creation",
-    )
-    parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PXPs")
-    config = parser.parse_args(args)
-
-    with open(config.crsd_file, "rb") as f, skcrsd.Reader(f) as r:
-        xmltree = r.metadata.xmltree
-        crsd_type = lxml.etree.QName(xmltree.getroot()).localname
-
-        # channel selection
-        ch_ids = set()
-        if config.chan:
-            ch_ids.update(config.chan)
-        if config.ref_chan:
-            ref_ch_id = xmltree.findtext("{*}Channel/{*}RefChId")
-            if ref_ch_id is None:
-                raise ValueError("Does not have a RefChId")
-            ch_ids.add(ref_ch_id)
-
-        all_ch_ids = [
-            x.text for x in xmltree.findall("{*}Channel/{*}Parameters/{*}Identifier")
-        ]
-        if not ch_ids:
-            ch_ids = sorted(all_ch_ids)
-        else:
-            unrecognized = ch_ids.difference(all_ch_ids)
-            if unrecognized:
-                raise ValueError(f"Unrecognized channel(s): {unrecognized}")
-            ch_ids = sorted(ch_ids)
-
-        # tx sequence selection
-        tx_ids = set()
-        if config.seq:
-            tx_ids.update(config.seq)
-        if config.ref_seq:
-            ref_tx_id = xmltree.findtext("{*}TxSequence/{*}RefTxId")
-            if ref_tx_id is None:
-                raise ValueError("Does not have a RefTxId")
-            tx_ids.add(ref_tx_id)
-        if crsd_type == "CRSDsar":
-            tx_ids.update(
-                xmltree.findtext(
-                    f"{{*}}Channel/{{*}}Parameters[{{*}}Identifier='{c}']/{{*}}SARImage/{{*}}TxId"
-                )
-                for c in ch_ids
-            )
-
-        all_tx_ids = [
-            x.text for x in xmltree.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
-        ]
-        if not tx_ids:
-            tx_ids = sorted(all_tx_ids)
-        else:
-            unrecognized = tx_ids.difference(all_tx_ids)
-            if unrecognized:
-                raise ValueError(f"Unrecognized transmit sequence(s): {unrecognized}")
-            tx_ids = sorted(tx_ids)
-
-        f.seek(0)
-        plotter = Plotter(
-            f,
-            html.escape(config.crsd_file),
-            channels=ch_ids,
-            sequences=tx_ids,
-            include_fixed_pxps=config.plot_fixed,
+class _CrsdPlotMetadataSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(
+            description="Produce various plots of information contained in a CRSD"
         )
-    save_func = plotter.save_combined if config.concatenate else plotter.save_separate
-    prefix = (
-        pathlib.PurePath(config.crsd_file).stem + "_"
-        if config.prefix is None
-        else config.prefix
-    )
-    save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
+
+    def add_arguments(self, parser):
+        parser.add_argument("crsd_file", help="CRSD file to analyze")
+        parser.add_argument(
+            "output_dir",
+            nargs="?",
+            type=pathlib.Path,
+            help="directory where output plot(s) will be placed (Default: current directory)",
+        )
+
+        channel_group = parser.add_argument_group(
+            title="channel selection",
+            description=(
+                "If these arguments are omitted, all channels are used. CRSDsar channels also select the relevant "
+                "transmit pulse sequences."
+            ),
+        )
+        channel_group.add_argument(
+            "--ref-chan", action="store_true", help="include the reference channel"
+        )
+        channel_group.add_argument(
+            "--chan",
+            nargs="+",
+            help="channel identifier(s) to include",
+        )
+
+        sequence_group = parser.add_argument_group(
+            title="transmit sequence selection",
+            description="If these arguments are omitted, all sequences are used.",
+        )
+        sequence_group.add_argument(
+            "--ref-seq",
+            action="store_true",
+            help="include the reference transmit sequence",
+        )
+        sequence_group.add_argument(
+            "--seq",
+            nargs="+",
+            help="transmit sequence identifier(s) to include",
+        )
+
+        parser.add_argument(
+            "-p",
+            "--prefix",
+            help="prefix used in output filenames (Default: {crsd_file.stem}_)",
+        )
+        parser.add_argument(
+            "-c",
+            "--concatenate",
+            action="store_true",
+            help="concatenate plots into single HTML",
+        )
+        parser.add_argument(
+            "-q",
+            "--quiet",
+            action="store_false",
+            dest="auto_open",
+            help="don't open plots after creation",
+        )
+        parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PXPs")
+
+    def run_command(self, config):
+        with open(config.crsd_file, "rb") as f, skcrsd.Reader(f) as r:
+            xmltree = r.metadata.xmltree
+            crsd_type = lxml.etree.QName(xmltree.getroot()).localname
+
+            # channel selection
+            ch_ids = set()
+            if config.chan:
+                ch_ids.update(config.chan)
+            if config.ref_chan:
+                ref_ch_id = xmltree.findtext("{*}Channel/{*}RefChId")
+                if ref_ch_id is None:
+                    raise ValueError("Does not have a RefChId")
+                ch_ids.add(ref_ch_id)
+
+            all_ch_ids = [
+                x.text
+                for x in xmltree.findall("{*}Channel/{*}Parameters/{*}Identifier")
+            ]
+            if not ch_ids:
+                ch_ids = sorted(all_ch_ids)
+            else:
+                unrecognized = ch_ids.difference(all_ch_ids)
+                if unrecognized:
+                    raise ValueError(f"Unrecognized channel(s): {unrecognized}")
+                ch_ids = sorted(ch_ids)
+
+            # tx sequence selection
+            tx_ids = set()
+            if config.seq:
+                tx_ids.update(config.seq)
+            if config.ref_seq:
+                ref_tx_id = xmltree.findtext("{*}TxSequence/{*}RefTxId")
+                if ref_tx_id is None:
+                    raise ValueError("Does not have a RefTxId")
+                tx_ids.add(ref_tx_id)
+            if crsd_type == "CRSDsar":
+                tx_ids.update(
+                    xmltree.findtext(
+                        f"{{*}}Channel/{{*}}Parameters[{{*}}Identifier='{c}']/{{*}}SARImage/{{*}}TxId"
+                    )
+                    for c in ch_ids
+                )
+
+            all_tx_ids = [
+                x.text
+                for x in xmltree.findall("{*}TxSequence/{*}Parameters/{*}Identifier")
+            ]
+            if not tx_ids:
+                tx_ids = sorted(all_tx_ids)
+            else:
+                unrecognized = tx_ids.difference(all_tx_ids)
+                if unrecognized:
+                    raise ValueError(
+                        f"Unrecognized transmit sequence(s): {unrecognized}"
+                    )
+                tx_ids = sorted(tx_ids)
+
+            f.seek(0)
+            plotter = Plotter(
+                f,
+                html.escape(config.crsd_file),
+                channels=ch_ids,
+                sequences=tx_ids,
+                include_fixed_pxps=config.plot_fixed,
+            )
+        save_func = (
+            plotter.save_combined if config.concatenate else plotter.save_separate
+        )
+        prefix = (
+            pathlib.PurePath(config.crsd_file).stem + "_"
+            if config.prefix is None
+            else config.prefix
+        )
+        output_dir = config.output_dir or pathlib.Path.cwd()
+        save_func(output_dir, prefix=prefix, auto_open=config.auto_open)
+        return 0
 
 
 pad_geom = cphd_plot_metadata.pad_geom
 _make_image_area = cphd_plot_metadata._make_image_area
 
+main = _CrsdPlotMetadataSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()  # pragma: no cover
+    sys.exit(main())

@@ -1,5 +1,3 @@
-import subprocess
-import sys
 import uuid
 
 import numpy as np
@@ -76,16 +74,12 @@ def test_main_bad_arg_list(tmp_path, fixture_name, test_args, request):
 def test_main_output_dir(tmp_path, example_crsdsar):
     outdir = tmp_path / "metadata_plots"
     assert not outdir.is_dir()
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(example_crsdsar),
             str(outdir),
             "-q",
         ],
-        cwd=tmp_path,
     )
     assert outdir.is_dir()
     assert len(list(outdir.glob("*.html"))) > 0
@@ -93,19 +87,16 @@ def test_main_output_dir(tmp_path, example_crsdsar):
 
 def test_main_prefix(tmp_path, example_crsdsar):
     prefix = "expected_prefix_"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(example_crsdsar),
+            str(tmp_path),
             "--ref-chan",
             "--ref-seq",
             "-q",
             "-p",
             prefix,
         ],
-        cwd=tmp_path,
     )
     for file in tmp_path.glob("*.html"):
         assert file.name.startswith(prefix)
@@ -113,11 +104,8 @@ def test_main_prefix(tmp_path, example_crsdsar):
 
 def test_main_concatenate(tmp_path, example_crsdsar):
     separate_dir = tmp_path / "separate"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(example_crsdsar),
             str(separate_dir),
             "--ref-chan",
@@ -128,11 +116,8 @@ def test_main_concatenate(tmp_path, example_crsdsar):
     assert len(list(separate_dir.glob("*.html"))) > 1
 
     concat_dir = tmp_path / "concatenated"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(example_crsdsar),
             str(concat_dir),
             "--ref-chan",
@@ -185,12 +170,9 @@ def test_main_channel_args(tmp_path, multi_crsdsar, chan_args, expected_channels
 
 
 def test_main_bad_channel(tmp_path, multi_crsdsar):
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(
+    with pytest.raises(ValueError, match="Unrecognized channel"):
+        main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.crsd_plot_metadata",
                 str(multi_crsdsar),
                 str(tmp_path),
                 "--chan",
@@ -201,12 +183,9 @@ def test_main_bad_channel(tmp_path, multi_crsdsar):
 
 
 def test_main_bad_chan_arg_list(tmp_path, multi_crsdsar):
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(
+    with pytest.raises(ValueError, match="Unrecognized channel"):
+        main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.crsd_plot_metadata",
                 str(multi_crsdsar),
                 str(tmp_path),
                 "--ref-chan",
@@ -254,12 +233,9 @@ def test_main_sequence_args(tmp_path, multi_crsdsar, seq_args, expected_sequence
 
 
 def test_main_bad_sequence(tmp_path, multi_crsdsar):
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(
+    with pytest.raises(ValueError, match="Unrecognized transmit sequence"):
+        main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.crsd_plot_metadata",
                 str(multi_crsdsar),
                 str(tmp_path),
                 "--seq",
@@ -269,12 +245,9 @@ def test_main_bad_sequence(tmp_path, multi_crsdsar):
 
 
 def test_main_bad_seq_arg_list(tmp_path, multi_crsdsar):
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(
+    with pytest.raises(ValueError, match="Unrecognized transmit sequence"):
+        main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.crsd_plot_metadata",
                 str(multi_crsdsar),
                 str(tmp_path),
                 "--ref-seq",
@@ -290,11 +263,8 @@ def test_main_plot_fixed_pvps(tmp_path, multi_crsdrcv):
     assert any(np.unique(pvps[name], axis=0).shape[0] == 1 for name in pvps.dtype.names)
 
     no_fixed_dir = tmp_path / "no_fixed"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(multi_crsdrcv),
             str(no_fixed_dir),
             "--ref-chan",
@@ -302,11 +272,8 @@ def test_main_plot_fixed_pvps(tmp_path, multi_crsdrcv):
         ]
     )
     fixed_dir = tmp_path / "fixed"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(multi_crsdrcv),
             str(fixed_dir),
             "--ref-chan",
@@ -323,11 +290,8 @@ def test_main_plot_fixed_ppps(tmp_path, multi_crsdtx):
     assert any(np.unique(ppps[name], axis=0).shape[0] == 1 for name in ppps.dtype.names)
 
     no_fixed_dir = tmp_path / "no_fixed"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(multi_crsdtx),
             str(no_fixed_dir),
             "--ref-seq",
@@ -335,11 +299,8 @@ def test_main_plot_fixed_ppps(tmp_path, multi_crsdtx):
         ]
     )
     fixed_dir = tmp_path / "fixed"
-    subprocess.check_call(
+    main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.crsd_plot_metadata",
             str(multi_crsdtx),
             str(fixed_dir),
             "--ref-seq",
@@ -352,11 +313,8 @@ def test_main_plot_fixed_ppps(tmp_path, multi_crsdtx):
 
 def test_smart_open(tmp_path, example_crsdsar):
     with tests.utils.static_http_server(example_crsdsar.parent) as server_url:
-        subprocess.check_call(
+        main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.crsd_plot_metadata",
                 f"{server_url}/{example_crsdsar.name}",
                 str(tmp_path),
                 "--ref-chan",

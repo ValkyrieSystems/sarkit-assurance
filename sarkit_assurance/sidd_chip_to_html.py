@@ -1,4 +1,3 @@
-import argparse
 import html
 import json
 import logging
@@ -13,7 +12,7 @@ import sarkit.sidd as sksidd
 import sarkit.wgs84
 import shapely.geometry as shg
 
-from . import _geojson, _remap
+from . import _cli, _geojson, _remap
 
 try:
     from smart_open import open
@@ -300,44 +299,49 @@ def _get_image(reader, image_num):
     return img
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(description="Plot GeoJSON Features")
-    parser.add_argument("sidd_file", help="Input SIDD file (must be 2.0 or 3.0)")
-    parser.add_argument("geojson_file", help="Input GeoJSON file")
-    parser.add_argument("output_html_file", help="Output HTML file")
-    config = parser.parse_args(args)
+class _SiddChipToHtmlSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(description="Plot GeoJSON Features")
 
-    with open(config.geojson_file, "rb") as file:
-        geo = json.load(file)
+    def add_arguments(self, parser):
+        parser.add_argument("sidd_file", help="Input SIDD file (must be 2.0 or 3.0)")
+        parser.add_argument("geojson_file", help="Input GeoJSON file")
+        parser.add_argument("output_html_file", help="Output HTML file")
 
-    image_plot_dict = dict()
-    plot_exists = False
-    with open(config.sidd_file, "rb") as file, sksidd.NitfReader(file) as reader:
-        num_images = len(reader.metadata.images)
-        for image_num in range(num_images):
-            plots = []
-            xmltree = reader.metadata.images[image_num].xmltree
-            sidd_ew = sksidd.ElementWrapper(xmltree.getroot())
-            image = _get_image(reader, image_num)
-            for feature in _geojson.features(geo):
-                plot = create_sidd_chip_plot(image, sidd_ew, feature)
-                if plot is None:
-                    continue
-                plot_exists = True
-                plots.append(plot)
-            image_plot_dict[f"Image {image_num + 1}"] = plots
+    def run_command(self, config):
+        with open(config.geojson_file, "rb") as file:
+            geo = json.load(file)
 
-    if not plot_exists:
-        logging.error("No plots created")
-        return 1
+        image_plot_dict = dict()
+        plot_exists = False
+        with open(config.sidd_file, "rb") as file, sksidd.NitfReader(file) as reader:
+            num_images = len(reader.metadata.images)
+            for image_num in range(num_images):
+                plots = []
+                xmltree = reader.metadata.images[image_num].xmltree
+                sidd_ew = sksidd.ElementWrapper(xmltree.getroot())
+                image = _get_image(reader, image_num)
+                for feature in _geojson.features(geo):
+                    plot = create_sidd_chip_plot(image, sidd_ew, feature)
+                    if plot is None:
+                        continue
+                    plot_exists = True
+                    plots.append(plot)
+                image_plot_dict[f"Image {image_num + 1}"] = plots
 
-    extra_metadata = {
-        "SIDD File": str(config.sidd_file),
-        "GeoJSON File": str(config.geojson_file),
-    }
-    write_html_file(config.output_html_file, image_plot_dict, extra_metadata)
-    return 0
+        if not plot_exists:
+            logging.error("No plots created")
+            return 1
 
+        extra_metadata = {
+            "SIDD File": str(config.sidd_file),
+            "GeoJSON File": str(config.geojson_file),
+        }
+        write_html_file(config.output_html_file, image_plot_dict, extra_metadata)
+        return 0
+
+
+main = _SiddChipToHtmlSubcommand().as_callable()
 
 if __name__ == "__main__":
     sys.exit(main())
