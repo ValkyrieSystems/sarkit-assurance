@@ -1,5 +1,3 @@
-import contextlib
-
 import numpy as np
 import pytest
 import sarkit.cphd as skcphd
@@ -10,17 +8,6 @@ import tests.utils
 
 
 def test_main(tmp_path, multichan_cphd):
-    with contextlib.chdir(tmp_path):
-        sarkit_assurance.cphd_plot_metadata.main(
-            [
-                str(multichan_cphd),
-                "-q",
-            ],
-        )
-    assert len(list(tmp_path.glob("*.html"))) > 0
-
-
-def test_main_output_dir(tmp_path, multichan_cphd):
     outdir = tmp_path / "metadata_plots"
     assert not outdir.is_dir()
     sarkit_assurance.cphd_plot_metadata.main(

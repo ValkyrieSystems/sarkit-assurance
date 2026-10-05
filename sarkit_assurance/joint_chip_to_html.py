@@ -1,6 +1,8 @@
+import argparse
 import json
 import pathlib
 import sys
+import textwrap
 
 import numpy as np
 import sarkit.sicd as sksicd
@@ -47,19 +49,34 @@ def _get_shared_valid_data(data, sicd_xmltree, sidd_xmltree):
 class _JointChipToHtmlSubcommand(_cli.Subcommand):
     def get_argument_parser_kwargs(self):
         return dict(
-            description="Chip brightest pixel supported in both a SICD and SIDD."
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent("""
+                Create HTML files containing chips from a common location in a SICD and SIDD
+
+                The chips are extracted about a location corresponding to the brightest SICD pixel in the intersection
+                of the SICD and first SIDD image's ValidData regions.
+
+                Produces:
+
+                geo.json
+                    GeoJSON containing a 3D point feature describing the location about which the chips are extracted
+                sicd_chip.html
+                    HTML file containing the SICD chip
+                sidd_chip.html
+                    HTML file containing the SIDD chip(s)
+            """),
         )
 
     def add_arguments(self, parser):
-        parser.add_argument("sicd_file", help="Input SICD file")
+        parser.add_argument("sicd_file", help="path to SICD file")
         parser.add_argument(
             "sidd_file",
-            help="Input SIDD file (must be 2.0 or 3.0)",
+            help="path to SIDD file (must be v2.0 or v3.0)",
         )
         parser.add_argument(
             "output_dir",
             type=pathlib.Path,
-            help="Directory where output HTMLs will be placed",
+            help="path to output directory",
         )
 
     def run_command(self, config):

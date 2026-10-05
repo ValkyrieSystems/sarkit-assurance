@@ -1,6 +1,8 @@
 import argparse
 import sys
 
+import sarkit_assurance
+
 from . import (
     _cli,
     cphd_ipr,
@@ -18,6 +20,14 @@ from . import (
 
 def main(args=None):
     parser = argparse.ArgumentParser(description="sarkit-assurance tools")
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version="sarkit-assurance version {version}".format(
+            version=sarkit_assurance.__version__
+        ),
+    )
     subcommands = parser.add_subparsers(
         title="subcommands", required=True, dest="command"
     )
@@ -30,52 +40,52 @@ def main(args=None):
         command.set_defaults(command_handler=sc.run_command)
 
     add_subcommand(
-        cphd_ipr._CphdIprSubcommand(), "cphd_ipr", help="analyze target IPRs in a CPHD"
+        cphd_ipr._CphdIprSubcommand(), "cphd_ipr", help="Analyze target IPRs in a CPHD"
     )
     add_subcommand(
         cphd_plot_metadata._CphdPlotMetadataSubcommand(),
         "cphd_plot_metadata",
-        help="produce various plots of information contained in a CPHD",
+        help="Create HTML metadata plots from a CPHD",
     )
     add_subcommand(
         cphd_thumb._CphdThumbSubcommand(),
         "cphd_thumb",
-        help="create thumbnails from CPHD signal arrays",
+        help="Create thumbnails from CPHD signal arrays",
     )
     add_subcommand(
         crsd_plot_metadata._CrsdPlotMetadataSubcommand(),
         "crsd_plot_metadata",
-        help="produce various plots of information contained in a CRSD",
+        help="Create HTML metadata plots from a CRSD",
     )
     add_subcommand(
         joint_chip_to_html._JointChipToHtmlSubcommand(),
         "joint_chip_to_html",
-        help="chip brightest pixel supported in both a SICD and SIDD",
+        help="Create HTML files containing chips from a common location in a SICD and SIDD",
     )
     add_subcommand(
         sicd_chip_to_html._SicdChipToHtmlSubcommand(),
         "sicd_chip_to_html",
-        help="plot GeoJSON Features",
+        help="Create an HTML file containing SICD chips",
     )
     add_subcommand(
         sicd_ipr._SicdIprSubcommand(),
         "sicd_ipr",
-        help="analyze target IPRs in a SICD",
+        help="Analyze target IPRs in a SICD",
     )
     add_subcommand(
         sicd_plot_metadata._SicdPlotMetadataSubcommand(),
         "sicd_plot_metadata",
-        help="produce various plots of information contained in a SICD",
+        help="Create HTML metadata plots from a SICD",
     )
     add_subcommand(
         sidd_chip_to_html._SiddChipToHtmlSubcommand(),
         "sidd_chip_to_html",
-        help="plot GeoJSON Features",
+        help="Create an HTML file containing SIDD chips",
     )
     add_subcommand(
         sidd_thumb._SiddThumbSubcommand(),
         "sidd_thumb",
-        help="create thumbnails from SIDD product images",
+        help="Create thumbnails from SIDD product images",
     )
 
     config = parser.parse_args(args)

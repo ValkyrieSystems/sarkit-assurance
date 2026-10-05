@@ -1239,22 +1239,19 @@ def sample_antenna_polys_near_points(apat_gp_ew, dcs, scale=1.05):
 
 class _CphdPlotMetadataSubcommand(_cli.Subcommand):
     def get_argument_parser_kwargs(self):
-        return dict(
-            description="Produce various plots of information contained in a CPHD"
-        )
+        return dict(description="Create HTML metadata plots from a CPHD")
 
     def add_arguments(self, parser):
-        parser.add_argument("cphd_file", help="CPHD file to analyze")
+        parser.add_argument("cphd_file", help="path to CPHD file")
         parser.add_argument(
             "output_dir",
-            nargs="?",
             type=pathlib.Path,
-            help="directory where output plot(s) will be placed (Default: current directory)",
+            help="path to output directory",
         )
         parser.add_argument(
             "-p",
             "--prefix",
-            help="prefix used in output filenames (Default: {cphd_file.stem}_)",
+            help="prefix used in output filenames (default: '{cphd_file.stem}_')",
         )
         parser.add_argument(
             "-c",
@@ -1273,7 +1270,7 @@ class _CphdPlotMetadataSubcommand(_cli.Subcommand):
         parser.add_argument(
             "--all-support-arrays",
             action="store_true",
-            help="plot all support arrays. Default is to plot only support arrays referenced by a plotted channel",
+            help="plot all support arrays (default: plot support arrays referenced by selected channel(s))",
         )
         _cli.add_cphd_chan_arg_group(parser)
 
@@ -1296,8 +1293,7 @@ class _CphdPlotMetadataSubcommand(_cli.Subcommand):
             if config.prefix is None
             else config.prefix
         )
-        output_dir = config.output_dir or pathlib.Path.cwd()
-        save_func(output_dir, prefix=prefix, auto_open=config.auto_open)
+        save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
         return 0
 
 

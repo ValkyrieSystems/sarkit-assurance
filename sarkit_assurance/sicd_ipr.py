@@ -391,10 +391,13 @@ class _SicdIprSubcommand(_cli.Subcommand):
         )
 
     def add_arguments(self, parser):
-        parser.add_argument("sicd_file", help="Input SICD file")
-        parser.add_argument("geojson_file", help="Input GeoJSON file")
+        parser.add_argument("sicd_file", help="path to SICD file to analyze")
         parser.add_argument(
-            "out_dir", help="Directory to store results", type=pathlib.Path
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument(
+            "output_dir", help="path to output directory", type=pathlib.Path
         )
         parser.add_argument(
             "--search-size-pixels",
@@ -414,7 +417,9 @@ class _SicdIprSubcommand(_cli.Subcommand):
             geo = json.load(file)
 
         with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
-            analyze(r, geo, config.out_dir, search_sizes_px=config.search_size_pixels)
+            analyze(
+                r, geo, config.output_dir, search_sizes_px=config.search_size_pixels
+            )
 
         return 0
 

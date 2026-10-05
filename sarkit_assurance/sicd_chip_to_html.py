@@ -192,12 +192,15 @@ def write_html_file(
 
 class _SicdChipToHtmlSubcommand(_cli.Subcommand):
     def get_argument_parser_kwargs(self):
-        return dict(description="Plot GeoJSON Features")
+        return dict(description="Create an HTML file containing SICD chips")
 
     def add_arguments(self, parser):
-        parser.add_argument("sicd_file", help="Input SICD file")
-        parser.add_argument("geojson_file", help="Input GeoJSON file")
-        parser.add_argument("output_html_file", help="Output HTML file")
+        parser.add_argument("sicd_file", help="path to SICD file")
+        parser.add_argument(
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument("output_html_file", help="path to output HTML file")
 
     def run_command(self, config):
         with open(config.geojson_file, "rb") as file:

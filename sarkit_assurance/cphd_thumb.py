@@ -43,16 +43,19 @@ class _CphdThumbSubcommand(_cli.Subcommand):
         return dict(description="Create thumbnails from CPHD signal arrays")
 
     def add_arguments(self, parser):
-        parser.add_argument("cphd_file", help="Path to input CPHD file")
+        parser.add_argument("cphd_file", help="path to CPHD file")
         parser.add_argument(
             "thumbnail_file",
-            help="Path to output thumbnail(s). The string '{ch_id}' will be replaced with channel identifier.",
+            help=(
+                "path to output thumbnail(s). The string '{ch_id}' will be replaced with channel identifier. "
+                "The file format is determined from the filename extension."
+            ),
         )
         parser.add_argument(
             "--num-mebipixels",
             default=1.0,
             type=float,
-            help="Maximum number of mebipixels to output",
+            help="maximum number of mebipixels to output (default: 1.0 MiB)",
         )
         _cli.add_cphd_chan_arg_group(parser)
 

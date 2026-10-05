@@ -963,28 +963,19 @@ def downsample_all_dims(data, factor):
 
 class _SicdPlotMetadataSubcommand(_cli.Subcommand):
     def get_argument_parser_kwargs(self):
-        return dict(
-            description="Produce various plots of information contained in a SICD"
-        )
+        return dict(description="Create HTML metadata plots from a SICD")
 
     def add_arguments(self, parser):
-        parser.add_argument("sicd_nitf_or_xml")
+        parser.add_argument("sicd_nitf_or_xml", help="path to SICD file (NITF or XML)")
         parser.add_argument(
             "output_dir",
-            nargs="?",
             type=pathlib.Path,
-            help="directory where output plot(s) will be placed (Default: current directory)",
+            help="path to output directory",
         )
         parser.add_argument(
             "-p",
             "--prefix",
-            help="prefix used in output filenames (Default: {sicd_nitf_or_xml.stem}_)",
-        )
-        parser.add_argument(
-            "-s",
-            "--sample-data",
-            action="store_true",
-            help="include plots that use the SICD data",
+            help="prefix used in output filenames (default: '{sicd_nitf_or_xml.stem}_')",
         )
         parser.add_argument(
             "-c",
@@ -998,6 +989,12 @@ class _SicdPlotMetadataSubcommand(_cli.Subcommand):
             action="store_false",
             dest="auto_open",
             help="don't open plots after creation",
+        )
+        parser.add_argument(
+            "-s",
+            "--sample-data",
+            action="store_true",
+            help="include plots that use the SICD data",
         )
 
     def run_command(self, config):
@@ -1015,8 +1012,7 @@ class _SicdPlotMetadataSubcommand(_cli.Subcommand):
             if config.prefix is None
             else config.prefix
         )
-        output_dir = config.output_dir or pathlib.Path.cwd()
-        save_func(output_dir, prefix=prefix, auto_open=config.auto_open)
+        save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
         return 0
 
 

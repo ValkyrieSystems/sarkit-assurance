@@ -36,10 +36,11 @@ from sarkit_assurance.crsd_plot_metadata import main
 )
 def test_main(tmp_path, fixture_name, test_args, request):
     file = request.getfixturevalue(fixture_name)
-
+    outdir = tmp_path / "metadata_plots"
+    assert not outdir.is_dir()
     with file.open("rb"):
-        assert not main([str(file), str(tmp_path), "-q"] + test_args)
-    assert len(list(tmp_path.glob("*.html"))) > 0
+        assert not main([str(file), str(outdir), "-q"] + test_args)
+    assert len(list(outdir.glob("*.html"))) > 0
 
 
 @pytest.mark.parametrize(
@@ -69,20 +70,6 @@ def test_main_bad_arg_list(tmp_path, fixture_name, test_args, request):
     with file.open("rb"):
         with pytest.raises(ValueError):
             main([str(file), str(tmp_path), "-q"] + test_args)
-
-
-def test_main_output_dir(tmp_path, example_crsdsar):
-    outdir = tmp_path / "metadata_plots"
-    assert not outdir.is_dir()
-    main(
-        [
-            str(example_crsdsar),
-            str(outdir),
-            "-q",
-        ],
-    )
-    assert outdir.is_dir()
-    assert len(list(outdir.glob("*.html"))) > 0
 
 
 def test_main_prefix(tmp_path, example_crsdsar):
