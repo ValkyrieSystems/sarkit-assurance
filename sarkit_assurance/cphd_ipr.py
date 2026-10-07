@@ -6,6 +6,7 @@ import copy
 import importlib.metadata
 import json
 import pathlib
+import sys
 import textwrap
 from collections.abc import Iterator, Sequence
 from typing import Any
@@ -504,39 +505,51 @@ def customize_spatialfreq_axes(k_iprparts: _ipr.IprParts, spacing_rc: Sequence[f
     k_iprparts.vs_col.domain.rescale(1 / spacing_rc[1], name="Slow Time", units="sec")
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent("""
-            Analyze target IPRs in a CPHD
+class _CphdIprSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent("""
+                Analyze target IPRs in a CPHD
 
-            Produces:
+                Produces:
 
-            cphd_ipr.json
-                Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
-                results. Existing properties, if present, are maintained in the "original_properties" member.
-            cphd_ipr${index}[-${feature_id}]-${ch_id}.html
-                IPR plot for a given feature and channel.
-        """),
-    )
-    parser.add_argument(
-        "cphd_file", help="Input CPHD file (must have Antenna metadata)"
-    )
-    parser.add_argument("geojson_file", help="Input GeoJSON file")
-    parser.add_argument("out_dir", help="Directory to store results", type=pathlib.Path)
-    _cli.add_cphd_chan_arg_group(parser)
-    config = parser.parse_args(args)
+                cphd_ipr.json
+                    Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
+                    results. Existing properties, if present, are maintained in the "original_properties" member.
+                cphd_ipr${index}[-${feature_id}]-${ch_id}.html
+                    IPR plot for a given feature and channel.
+            """),
+        )
 
-    with open(config.geojson_file, "rb") as file:
-        geo = json.load(file)
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "cphd_file",
+            help="path to CPHD file to analyze (must have Antenna metadata)",
+        )
+        parser.add_argument(
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument(
+            "output_dir", help="path to output directory", type=pathlib.Path
+        )
+        _cli.add_cphd_chan_arg_group(parser)
 
-    with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        if r.metadata.xmltree.find("{*}Antenna") is None:
-            raise ValueError("CPHD must have antenna metadata")
+    def run_command(self, config):
+        with open(config.geojson_file, "rb") as file:
+            geo = json.load(file)
 
-        ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
-        analyze(r, geo, ch_ids, config.out_dir)
+        with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
+            if r.metadata.xmltree.find("{*}Antenna") is None:
+                raise ValueError("CPHD must have antenna metadata")
 
+            ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
+            analyze(r, geo, ch_ids, config.output_dir)
+        return 0
+
+
+main = _CphdIprSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

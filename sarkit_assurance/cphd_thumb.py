@@ -1,5 +1,5 @@
-import argparse
 import math
+import sys
 
 import numpy as np
 import sarkit.cphd as skcphd
@@ -38,38 +38,45 @@ def channel_thumb(cphd_reader, channel_id, thumbnail_file, output_size):
     img.save(thumbnail_file)
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        description="Create thumbnails from CPHD signal arrays"
-    )
-    parser.add_argument("cphd_file", help="Path to input CPHD file")
-    parser.add_argument(
-        "thumbnail_file",
-        help="Path to output thumbnail(s). The string '{ch_id}' will be replaced with channel identifier.",
-    )
-    parser.add_argument(
-        "--num-mebipixels",
-        default=1.0,
-        type=float,
-        help="Maximum number of mebipixels to output",
-    )
-    _cli.add_cphd_chan_arg_group(parser)
-    config = parser.parse_args(args)
+class _CphdThumbSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(description="Create thumbnails from CPHD signal arrays")
 
-    output_size = config.num_mebipixels * 2**20
+    def add_arguments(self, parser):
+        parser.add_argument("cphd_file", help="path to CPHD file")
+        parser.add_argument(
+            "thumbnail_file",
+            help=(
+                "path to output thumbnail(s). The string '{ch_id}' will be replaced with channel identifier. "
+                "The file format is determined from the filename extension."
+            ),
+        )
+        parser.add_argument(
+            "--num-mebipixels",
+            default=1.0,
+            type=float,
+            help="maximum number of mebipixels to output (default: 1.0 MiB)",
+        )
+        _cli.add_cphd_chan_arg_group(parser)
 
-    with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
-        thumbnames = {
-            ch_id: config.thumbnail_file.format(ch_id=names.sanitize_name(ch_id))
-            for ch_id in ch_ids
-        }
-        if len(set(thumbnames.values())) != len(thumbnames):
-            raise RuntimeError("Duplicate output filenames detected")
+    def run_command(self, config):
+        output_size = config.num_mebipixels * 2**20
 
-        for ch_id, thumbname in thumbnames.items():
-            channel_thumb(r, ch_id, thumbname, output_size)
+        with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
+            ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
+            thumbnames = {
+                ch_id: config.thumbnail_file.format(ch_id=names.sanitize_name(ch_id))
+                for ch_id in ch_ids
+            }
+            if len(set(thumbnames.values())) != len(thumbnames):
+                raise RuntimeError("Duplicate output filenames detected")
 
+            for ch_id, thumbname in thumbnames.items():
+                channel_thumb(r, ch_id, thumbname, output_size)
+        return 0
+
+
+main = _CphdThumbSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

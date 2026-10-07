@@ -1,6 +1,8 @@
 import argparse
 import json
 import pathlib
+import sys
+import textwrap
 
 import numpy as np
 import sarkit.sicd as sksicd
@@ -8,7 +10,7 @@ import sarkit.sidd as sksidd
 import sarkit.wgs84
 import shapely
 
-from . import _sicd_utils, sicd_chip_to_html, sidd_chip_to_html
+from . import _cli, _sicd_utils, sicd_chip_to_html, sidd_chip_to_html
 
 try:
     from smart_open import open
@@ -44,81 +46,110 @@ def _get_shared_valid_data(data, sicd_xmltree, sidd_xmltree):
     return np.ma.masked_array(data, np.logical_not(mask))
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        description="Chip brightest pixel supported in both a SICD and SIDD."
-    )
-    parser.add_argument("sicd_file", help="Input SICD file")
-    parser.add_argument(
-        "sidd_file",
-        help="Input SIDD file (must be 2.0 or 3.0)",
-    )
-    parser.add_argument(
-        "output_dir",
-        type=pathlib.Path,
-        help="Directory where output HTMLs will be placed",
-    )
-    config = parser.parse_args(args)
+class _JointChipToHtmlSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent("""
+                Create HTML files containing chips from a common location in a SICD and SIDD
 
-    with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
-        # TODO: This tool uses only ValidData from the first SIDD image
-        sidd_xmltree = r.metadata.images[0].xmltree
+                The chips are extracted about a location corresponding to the brightest SICD pixel in the intersection
+                of the SICD and first SIDD image's ValidData regions.
 
-    with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
-        sicd_xmltree = r.metadata.xmltree
-        input_sicd_data = r.read_image()
-        sicd_ew = sksicd.ElementWrapper(sicd_xmltree.getroot())
+                Produces:
 
-    if sicd_ew["ImageData"]["PixelType"] == "RE16I_IM16I":
-        input_sicd_data = (
-            input_sicd_data["real"].astype(np.float32)
-            + 1j * input_sicd_data["imag"].astype(np.float32)
-        ).astype(np.complex64)
-    elif sicd_ew["ImageData"]["PixelType"] == "AMP8I_PHS8I":
-        # TODO: Handle 8-bit amp/phase
-        raise NotImplementedError("SICDs with PixelType=AMP8I_PHS8I are not supported")
+                geo.json
+                    GeoJSON containing a 3D point feature describing the location about which the chips are extracted
+                sicd_chip.html
+                    HTML file containing the SICD chip
+                sidd_chip.html
+                    HTML file containing the SIDD chip(s)
+            """),
+        )
 
-    masked_sicd_data = _get_shared_valid_data(
-        input_sicd_data, sicd_xmltree, sidd_xmltree
-    )
+    def add_arguments(self, parser):
+        parser.add_argument("sicd_file", help="path to SICD file")
+        parser.add_argument(
+            "sidd_file",
+            help="path to SIDD file (must be v2.0 or v3.0)",
+        )
+        parser.add_argument(
+            "output_dir",
+            type=pathlib.Path,
+            help="path to output directory",
+        )
 
-    max_rc = np.unravel_index(np.abs(masked_sicd_data).argmax(), masked_sicd_data.shape)
-    max_xryc = sksicd.rowcol_to_xrowycol(sicd_xmltree, max_rc)
+    def run_command(self, config):
+        with open(config.sidd_file, "rb") as f, sksidd.NitfReader(f) as r:
+            # TODO: This tool uses only ValidData from the first SIDD image
+            sidd_xmltree = r.metadata.images[0].xmltree
 
-    # Use RadarCollection.Area.Plane metadata if available, default to SCP
-    if sicd_ew["RadarCollection"]["Area"]["Plane"] is not None:
-        ref_pt = sicd_ew["RadarCollection"]["Area"]["Plane"]["RefPt"]["ECF"]
-        ux = sicd_ew["RadarCollection"]["Area"]["Plane"]["XDir"]["UVectECF"]
-        uy = sicd_ew["RadarCollection"]["Area"]["Plane"]["YDir"]["UVectECF"]
-        unorm = np.cross(ux, uy)
-    else:
-        ref_pt = sicd_ew["GeoData"]["SCP"]["ECF"]
-        unorm = sarkit.wgs84.up(sicd_ew["GeoData"]["SCP"]["LLH"])
+        with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
+            sicd_xmltree = r.metadata.xmltree
+            input_sicd_data = r.read_image()
+            sicd_ew = sksicd.ElementWrapper(sicd_xmltree.getroot())
 
-    max_ecef, _, success = sksicd.image_to_ground_plane(
-        sicd_xmltree, max_xryc, ref_pt, unorm
-    )
-    assert success
-    max_llh = sarkit.wgs84.cartesian_to_geodetic(max_ecef)
-    # GeoJSON order is (Lon, Lat, HAE)
-    max_llh = max_llh[[1, 0, 2]]
+        if sicd_ew["ImageData"]["PixelType"] == "RE16I_IM16I":
+            input_sicd_data = (
+                input_sicd_data["real"].astype(np.float32)
+                + 1j * input_sicd_data["imag"].astype(np.float32)
+            ).astype(np.complex64)
+        elif sicd_ew["ImageData"]["PixelType"] == "AMP8I_PHS8I":
+            # TODO: Handle 8-bit amp/phase
+            raise NotImplementedError(
+                "SICDs with PixelType=AMP8I_PHS8I are not supported"
+            )
 
-    geojson = {
-        "type": "Feature",
-        "geometry": {
-            "type": "Point",
-            "coordinates": max_llh.tolist(),
-        },
-    }
-    geojson_file = config.output_dir / "geo.json"
-    sicd_chip_file = config.output_dir / "sicd_chip.html"
-    sidd_chip_file = config.output_dir / "sidd_chip.html"
-    with open(geojson_file, "w") as f:
-        json.dump(geojson, f, indent=2)
+        masked_sicd_data = _get_shared_valid_data(
+            input_sicd_data, sicd_xmltree, sidd_xmltree
+        )
 
-    sicd_chip_to_html.main([config.sicd_file, str(geojson_file), str(sicd_chip_file)])
-    sidd_chip_to_html.main([config.sidd_file, str(geojson_file), str(sidd_chip_file)])
+        max_rc = np.unravel_index(
+            np.abs(masked_sicd_data).argmax(), masked_sicd_data.shape
+        )
+        max_xryc = sksicd.rowcol_to_xrowycol(sicd_xmltree, max_rc)
 
+        # Use RadarCollection.Area.Plane metadata if available, default to SCP
+        if sicd_ew["RadarCollection"]["Area"]["Plane"] is not None:
+            ref_pt = sicd_ew["RadarCollection"]["Area"]["Plane"]["RefPt"]["ECF"]
+            ux = sicd_ew["RadarCollection"]["Area"]["Plane"]["XDir"]["UVectECF"]
+            uy = sicd_ew["RadarCollection"]["Area"]["Plane"]["YDir"]["UVectECF"]
+            unorm = np.cross(ux, uy)
+        else:
+            ref_pt = sicd_ew["GeoData"]["SCP"]["ECF"]
+            unorm = sarkit.wgs84.up(sicd_ew["GeoData"]["SCP"]["LLH"])
+
+        max_ecef, _, success = sksicd.image_to_ground_plane(
+            sicd_xmltree, max_xryc, ref_pt, unorm
+        )
+        assert success
+        max_llh = sarkit.wgs84.cartesian_to_geodetic(max_ecef)
+        # GeoJSON order is (Lon, Lat, HAE)
+        max_llh = max_llh[[1, 0, 2]]
+
+        geojson = {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": max_llh.tolist(),
+            },
+        }
+        geojson_file = config.output_dir / "geo.json"
+        sicd_chip_file = config.output_dir / "sicd_chip.html"
+        sidd_chip_file = config.output_dir / "sidd_chip.html"
+        with open(geojson_file, "w") as f:
+            json.dump(geojson, f, indent=2)
+
+        sicd_chip_to_html.main(
+            [config.sicd_file, str(geojson_file), str(sicd_chip_file)]
+        )
+        sidd_chip_to_html.main(
+            [config.sidd_file, str(geojson_file), str(sidd_chip_file)]
+        )
+        return 0
+
+
+main = _JointChipToHtmlSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()  # pragma: no cover
+    sys.exit(main())

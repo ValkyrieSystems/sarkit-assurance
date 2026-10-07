@@ -1,9 +1,9 @@
 """Utilities for generating plots of CPHD metadata"""
 
-import argparse
 import html
 import itertools
 import pathlib
+import sys
 
 import lxml.etree
 import numpy as np
@@ -1237,63 +1237,67 @@ def sample_antenna_polys_near_points(apat_gp_ew, dcs, scale=1.05):
     return x, y, samples
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        description="Produce various plots of information contained in a CPHD"
-    )
-    parser.add_argument("cphd_file", help="CPHD file to analyze")
-    parser.add_argument(
-        "output_dir",
-        nargs="?",
-        type=pathlib.Path,
-        default=pathlib.Path.cwd(),
-        help="directory where output plot(s) will be placed",
-    )
-    parser.add_argument(
-        "-p",
-        "--prefix",
-        help="prefix used in output filenames (Default: {cphd_file.stem}_)",
-    )
-    parser.add_argument(
-        "-c",
-        "--concatenate",
-        action="store_true",
-        help="concatenate plots into single HTML",
-    )
-    parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PVPs")
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_false",
-        dest="auto_open",
-        help="don't open plots after creation",
-    )
-    parser.add_argument(
-        "--all-support-arrays",
-        action="store_true",
-        help="plot all support arrays. Default is to plot only support arrays referenced by a plotted channel",
-    )
-    _cli.add_cphd_chan_arg_group(parser)
-    config = parser.parse_args(args)
+class _CphdPlotMetadataSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(description="Create HTML metadata plots from a CPHD")
 
-    with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
-        channels = _cli.selected_cphd_channels(r.metadata.xmltree, config)
-        f.seek(0)
-        plotter = Plotter(
-            f,
-            html.escape(config.cphd_file),
-            channels=channels,
-            include_fixed_pvps=config.plot_fixed,
-            include_all_support_arrays=config.all_support_arrays,
+    def add_arguments(self, parser):
+        parser.add_argument("cphd_file", help="path to CPHD file")
+        parser.add_argument(
+            "output_dir",
+            type=pathlib.Path,
+            help="path to output directory",
         )
-    save_func = plotter.save_combined if config.concatenate else plotter.save_separate
-    prefix = (
-        pathlib.PurePath(config.cphd_file).stem + "_"
-        if config.prefix is None
-        else config.prefix
-    )
-    save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
+        parser.add_argument(
+            "-p",
+            "--prefix",
+            help="prefix used in output filenames (default: '{cphd_file.stem}_')",
+        )
+        parser.add_argument(
+            "-c",
+            "--concatenate",
+            action="store_true",
+            help="concatenate plots into single HTML",
+        )
+        parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PVPs")
+        parser.add_argument(
+            "-q",
+            "--quiet",
+            action="store_false",
+            dest="auto_open",
+            help="don't open plots after creation",
+        )
+        parser.add_argument(
+            "--all-support-arrays",
+            action="store_true",
+            help="plot all support arrays (default: plot support arrays referenced by selected channel(s))",
+        )
+        _cli.add_cphd_chan_arg_group(parser)
 
+    def run_command(self, config):
+        with open(config.cphd_file, "rb") as f, skcphd.Reader(f) as r:
+            channels = _cli.selected_cphd_channels(r.metadata.xmltree, config)
+            f.seek(0)
+            plotter = Plotter(
+                f,
+                html.escape(config.cphd_file),
+                channels=channels,
+                include_fixed_pvps=config.plot_fixed,
+                include_all_support_arrays=config.all_support_arrays,
+            )
+        save_func = (
+            plotter.save_combined if config.concatenate else plotter.save_separate
+        )
+        prefix = (
+            pathlib.PurePath(config.cphd_file).stem + "_"
+            if config.prefix is None
+            else config.prefix
+        )
+        save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
+        return 0
+
+
+main = _CphdPlotMetadataSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()  # pragma: no cover
+    sys.exit(main())

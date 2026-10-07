@@ -1,4 +1,3 @@
-import argparse
 import html
 import json
 import logging
@@ -13,7 +12,7 @@ import sarkit.sicd as sksicd
 import sarkit.wgs84
 import shapely.geometry as shg
 
-from . import _geojson, _remap, _sicd_utils
+from . import _cli, _geojson, _remap, _sicd_utils
 
 try:
     from smart_open import open
@@ -191,35 +190,43 @@ def write_html_file(
     pathlib.Path(html_filename).write_text("\n".join(htmllines), encoding="utf=8")
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(description="Plot GeoJSON Features")
-    parser.add_argument("sicd_file", help="Input SICD file")
-    parser.add_argument("geojson_file", help="Input GeoJSON file")
-    parser.add_argument("output_html_file", help="Output HTML file")
-    config = parser.parse_args(args)
+class _SicdChipToHtmlSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(description="Create an HTML file containing SICD chips")
 
-    with open(config.geojson_file, "rb") as file:
-        geo = json.load(file)
+    def add_arguments(self, parser):
+        parser.add_argument("sicd_file", help="path to SICD file")
+        parser.add_argument(
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument("output_html_file", help="path to output HTML file")
 
-    plots = []
-    with open(config.sicd_file, "rb") as file, sksicd.NitfReader(file) as reader:
-        for feature in _geojson.features(geo):
-            plot = create_sicd_chip_plot(reader, feature)
-            if plot is None:
-                continue
-            plots.append(plot)
+    def run_command(self, config):
+        with open(config.geojson_file, "rb") as file:
+            geo = json.load(file)
 
-    if not plots:
-        logging.error("No plots created")
-        return 1
+        plots = []
+        with open(config.sicd_file, "rb") as file, sksicd.NitfReader(file) as reader:
+            for feature in _geojson.features(geo):
+                plot = create_sicd_chip_plot(reader, feature)
+                if plot is None:
+                    continue
+                plots.append(plot)
 
-    extra_metadata = {
-        "SICD File": str(config.sicd_file),
-        "GeoJSON File": str(config.geojson_file),
-    }
-    write_html_file(config.output_html_file, plots, extra_metadata)
-    return 0
+        if not plots:
+            logging.error("No plots created")
+            return 1
 
+        extra_metadata = {
+            "SICD File": str(config.sicd_file),
+            "GeoJSON File": str(config.geojson_file),
+        }
+        write_html_file(config.output_html_file, plots, extra_metadata)
+        return 0
+
+
+main = _SicdChipToHtmlSubcommand().as_callable()
 
 if __name__ == "__main__":
     sys.exit(main())

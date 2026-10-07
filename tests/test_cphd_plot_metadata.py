@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import numpy as np
 import pytest
 import sarkit.cphd as skcphd
@@ -11,32 +8,14 @@ import tests.utils
 
 
 def test_main(tmp_path, multichan_cphd):
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
-            str(multichan_cphd),
-            "-q",
-        ],
-        cwd=tmp_path,
-    )
-    assert len(list(tmp_path.glob("*.html"))) > 0
-
-
-def test_main_output_dir(tmp_path, multichan_cphd):
     outdir = tmp_path / "metadata_plots"
     assert not outdir.is_dir()
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(outdir),
             "-q",
-        ],
-        cwd=tmp_path,
+        ]
     )
     assert outdir.is_dir()
     assert len(list(outdir.glob("*.html"))) > 0
@@ -44,29 +23,25 @@ def test_main_output_dir(tmp_path, multichan_cphd):
 
 def test_main_prefix(tmp_path, multichan_cphd):
     prefix = "expected_prefix_"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
+            str(tmp_path),
             "-q",
             "-p",
             prefix,
-        ],
-        cwd=tmp_path,
+        ]
     )
-    for file in tmp_path.glob("*.html"):
+    files = list(tmp_path.glob("*.html"))
+    assert files
+    for file in files:
         assert file.name.startswith(prefix)
 
 
 def test_main_concatenate(tmp_path, multichan_cphd):
     separate_dir = tmp_path / "separate"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(separate_dir),
             "-q",
@@ -75,11 +50,8 @@ def test_main_concatenate(tmp_path, multichan_cphd):
     assert len(list(separate_dir.glob("*.html"))) > 1
 
     concat_dir = tmp_path / "concatenated"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(concat_dir),
             "-qc",
@@ -95,22 +67,16 @@ def test_main_plot_fixed(tmp_path, multichan_cphd):
     assert any(np.unique(pvps[name], axis=0).shape[0] == 1 for name in pvps.dtype.names)
 
     no_fixed_dir = tmp_path / "no_fixed"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(no_fixed_dir),
             "-q",
         ]
     )
     fixed_dir = tmp_path / "fixed"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(fixed_dir),
             "-q",
@@ -134,11 +100,8 @@ def test_main_channel_args(tmp_path, multichan_cphd):
         ([f"--chan={nonref_chan}", "--ref-chan"], [ref_channel, nonref_chan]),
         (["--chan"] + all_channels, all_channels),
     ]:
-        subprocess.check_call(
+        sarkit_assurance.cphd_plot_metadata.main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.cphd_plot_metadata",
                 str(multichan_cphd),
                 str(tmp_path),
                 "-q",
@@ -163,12 +126,9 @@ def test_main_channel_args(tmp_path, multichan_cphd):
 
 
 def test_main_bad_channel(tmp_path, multichan_cphd):
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.check_call(
+    with pytest.raises(ValueError, match="Unrecognized channel"):
+        sarkit_assurance.cphd_plot_metadata.main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.cphd_plot_metadata",
                 str(multichan_cphd),
                 str(tmp_path),
                 "-q",
@@ -180,11 +140,8 @@ def test_main_bad_channel(tmp_path, multichan_cphd):
 
 def test_smart_open(tmp_path, multichan_cphd):
     with tests.utils.static_http_server(multichan_cphd.parent) as server_url:
-        subprocess.check_call(
+        sarkit_assurance.cphd_plot_metadata.main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.cphd_plot_metadata",
                 f"{server_url}/{multichan_cphd.name}",
                 str(tmp_path),
                 "-q",
@@ -195,11 +152,8 @@ def test_smart_open(tmp_path, multichan_cphd):
 
 def test_main_all_support_arrays(tmp_path, multichan_cphd):
     default_dir = tmp_path / "default"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(default_dir),
             "-qc",
@@ -208,11 +162,8 @@ def test_main_all_support_arrays(tmp_path, multichan_cphd):
     )
 
     all_dir = tmp_path / "all"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(all_dir),
             "-qc",
@@ -222,11 +173,8 @@ def test_main_all_support_arrays(tmp_path, multichan_cphd):
     )
 
     dta_chan_dir = tmp_path / "dta_chan"
-    subprocess.check_call(
+    sarkit_assurance.cphd_plot_metadata.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.cphd_plot_metadata",
             str(multichan_cphd),
             str(dta_chan_dir),
             "-qc",

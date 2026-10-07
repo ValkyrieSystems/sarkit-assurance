@@ -1,7 +1,5 @@
 import filecmp
 import pathlib
-import subprocess
-import sys
 
 import numpy as np
 import pytest
@@ -9,17 +7,15 @@ import sarkit.sidd as sksidd
 from PIL import Image
 
 import tests.utils
+from sarkit_assurance import sidd_thumb
 
 DATAPATH = pathlib.Path(__file__).parents[1] / "data"
 
 
 def make_thumb(in_sidd, out_thumb, expected_max_num_pixels=2**20, img_num=None):
     img_num_args = [f"--image-number={x}" for x in img_num] if img_num else []
-    subprocess.check_call(
+    sidd_thumb.main(
         [
-            sys.executable,
-            "-m",
-            "sarkit_assurance.sidd_thumb",
             str(in_sidd),
             str(out_thumb),
             "--num-mebipixels",
@@ -76,7 +72,7 @@ def test_main(tmp_path, expected_max_num_pixels, multi_sidd):
 
 def test_bad_image_number(tmp_path, multi_sidd):
     bad_img_num = len(get_expected_img_modes(multi_sidd)) * 10
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(ValueError, match="bad_image_numbers"):
         make_thumb(multi_sidd, str(tmp_path / "{num}.png"), img_num=[0, bad_img_num])
     assert len(list(tmp_path.iterdir())) == 0
 
@@ -110,5 +106,5 @@ def test_multi_img(tmp_path, multi_sidd):
 
 
 def test_multi_img_clobber(tmp_path, multi_sidd):
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(RuntimeError, match="Duplicate output filenames detected"):
         make_thumb(multi_sidd, tmp_path / "no_num.png")

@@ -1,10 +1,14 @@
+import argparse
+import typing
+
+
 def add_cphd_chan_arg_group(parser):
     """Add a CPHD "Channel Selection" argument group to an ArgumentParser
 
     Intended for use with `selected_cphd_channels`
     """
     channel_group = parser.add_argument_group(
-        title="Channel Selection",
+        title="channel selection",
         description="If these arguments are omitted, all channels are used.",
     )
     channel_group.add_argument(
@@ -39,3 +43,54 @@ def selected_cphd_channels(cphd_xmltree, args) -> list[str]:
     if unrecognized:
         raise ValueError(f"Unrecognized channel(s): {unrecognized}")
     return sorted(ch_ids)
+
+
+class Subcommand:
+    """Class describing a CLI subcommand"""
+
+    def get_argument_parser_kwargs(self) -> dict[str, typing.Any]:
+        """ArgumentParser constructor arguments
+
+        Returns
+        -------
+        dict
+            dictionary of ArgumentParser arguments
+        """
+        raise NotImplementedError()
+
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        """Add arguments to a parser
+
+        Parameters
+        ----------
+        parser : argparse.ArgumentParser
+
+        Returns
+        -------
+        None
+        """
+        raise NotImplementedError()
+
+    def run_command(self, config: argparse.Namespace) -> int:
+        """Run the subcommand
+
+        Parameters
+        ----------
+        config : argparse.Namespace
+
+        Returns
+        -------
+        int
+            return code
+        """
+        raise NotImplementedError()
+
+    def as_callable(self):
+        parser = argparse.ArgumentParser(**self.get_argument_parser_kwargs())
+        self.add_arguments(parser)
+
+        def wrap(args=None):
+            config = parser.parse_args(args)
+            return self.run_command(config)
+
+        return wrap
