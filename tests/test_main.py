@@ -2,6 +2,10 @@ import itertools
 import subprocess
 import sys
 
+import pytest
+
+import sarkit_assurance
+
 EXPECTED_SUBCOMMANDS = [
     "cphd_ipr",
     "cphd_plot_metadata",
@@ -18,13 +22,15 @@ EXPECTED_SUBCOMMANDS = [
 
 def ep_callable(epname):
     def func(args):
-        subprocess.check_output([epname] + args)
+        return subprocess.check_output([epname] + args, text=True)
 
     return func
 
 
 def run_module(args):
-    subprocess.check_output([sys.executable, "-m", "sarkit_assurance"] + args)
+    return subprocess.check_output(
+        [sys.executable, "-m", "sarkit_assurance"] + args, text=True
+    )
 
 
 def test_main():
@@ -34,3 +40,12 @@ def test_main():
         EXPECTED_SUBCOMMANDS, itertools.cycle(callers), itertools.cycle(help_flags)
     ):
         caller([subcmd, help_flag])
+
+
+@pytest.mark.parametrize(
+    "caller", [ep_callable("sarkit-assurance"), ep_callable("ska"), run_module]
+)
+def test_main_version(caller):
+    out = caller(["--version"])
+    assert sarkit_assurance.__version__ in out
+    assert "sarkit-assurance" in out

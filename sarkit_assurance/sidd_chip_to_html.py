@@ -301,12 +301,17 @@ def _get_image(reader, image_num):
 
 class _SiddChipToHtmlSubcommand(_cli.Subcommand):
     def get_argument_parser_kwargs(self):
-        return dict(description="Plot GeoJSON Features")
+        return dict(description="Create an HTML file containing SIDD chips")
 
     def add_arguments(self, parser):
-        parser.add_argument("sidd_file", help="Input SIDD file (must be 2.0 or 3.0)")
-        parser.add_argument("geojson_file", help="Input GeoJSON file")
-        parser.add_argument("output_html_file", help="Output HTML file")
+        parser.add_argument(
+            "sidd_file", help="path to SIDD file (must be v2.0 or v3.0)"
+        )
+        parser.add_argument(
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument("output_html_file", help="path to output HTML file")
 
     def run_command(self, config):
         with open(config.geojson_file, "rb") as file:

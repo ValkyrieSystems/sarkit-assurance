@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `sarkit-assurance` and `ska` CLI entrypoints
 
+### Changed
+- `output_dir` argument is now required for `cphd_plot_metadata`, `crsd_plot_metadata`, `sicd_plot_metadata`
+
 
 ## [0.5.1] - 2026-09-29
 

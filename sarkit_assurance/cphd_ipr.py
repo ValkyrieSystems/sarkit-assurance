@@ -524,11 +524,15 @@ class _CphdIprSubcommand(_cli.Subcommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "cphd_file", help="Input CPHD file (must have Antenna metadata)"
+            "cphd_file",
+            help="path to CPHD file to analyze (must have Antenna metadata)",
         )
-        parser.add_argument("geojson_file", help="Input GeoJSON file")
         parser.add_argument(
-            "out_dir", help="Directory to store results", type=pathlib.Path
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument(
+            "output_dir", help="path to output directory", type=pathlib.Path
         )
         _cli.add_cphd_chan_arg_group(parser)
 
@@ -541,7 +545,7 @@ class _CphdIprSubcommand(_cli.Subcommand):
                 raise ValueError("CPHD must have antenna metadata")
 
             ch_ids = _cli.selected_cphd_channels(r.metadata.xmltree, config)
-            analyze(r, geo, ch_ids, config.out_dir)
+            analyze(r, geo, ch_ids, config.output_dir)
         return 0
 
 

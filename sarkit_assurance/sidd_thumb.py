@@ -67,12 +67,12 @@ class _SiddThumbSubcommand(_cli.Subcommand):
         )
 
     def add_arguments(self, parser):
-        parser.add_argument("sidd_file", help="Path to input SIDD file")
+        parser.add_argument("sidd_file", help="path to SIDD file")
         parser.add_argument(
             "thumbnail_file",
             help=(
-                "Path to output thumbnail(s). The string '{num}' will be replaced with the image number. "
-                "The format to use is determined from the filename extension."
+                "path to output thumbnail(s). The string '{num}' will be replaced with the image number. "
+                "The file format is determined from the filename extension."
             ),
         )
         parser.add_argument(
@@ -88,7 +88,7 @@ class _SiddThumbSubcommand(_cli.Subcommand):
             "--num-mebipixels",
             default=1.0,
             type=float,
-            help="Maximum number of mebipixels to output",
+            help="maximum number of mebipixels to output (default: 1.0 MiB)",
         )
 
     def run_command(self, config):

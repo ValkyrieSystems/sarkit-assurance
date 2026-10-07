@@ -878,17 +878,14 @@ class Plotter(_plot_metadata.Plotter):
 
 class _CrsdPlotMetadataSubcommand(_cli.Subcommand):
     def get_argument_parser_kwargs(self):
-        return dict(
-            description="Produce various plots of information contained in a CRSD"
-        )
+        return dict(description="Create HTML metadata plots from a CRSD")
 
     def add_arguments(self, parser):
-        parser.add_argument("crsd_file", help="CRSD file to analyze")
+        parser.add_argument("crsd_file", help="path to CRSD file")
         parser.add_argument(
             "output_dir",
-            nargs="?",
             type=pathlib.Path,
-            help="directory where output plot(s) will be placed (Default: current directory)",
+            help="path to output directory",
         )
 
         channel_group = parser.add_argument_group(
@@ -925,7 +922,7 @@ class _CrsdPlotMetadataSubcommand(_cli.Subcommand):
         parser.add_argument(
             "-p",
             "--prefix",
-            help="prefix used in output filenames (Default: {crsd_file.stem}_)",
+            help="prefix used in output filenames (default: '{crsd_file.stem}_')",
         )
         parser.add_argument(
             "-c",
@@ -933,6 +930,7 @@ class _CrsdPlotMetadataSubcommand(_cli.Subcommand):
             action="store_true",
             help="concatenate plots into single HTML",
         )
+        parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PXPs")
         parser.add_argument(
             "-q",
             "--quiet",
@@ -940,7 +938,6 @@ class _CrsdPlotMetadataSubcommand(_cli.Subcommand):
             dest="auto_open",
             help="don't open plots after creation",
         )
-        parser.add_argument("--plot-fixed", action="store_true", help="plot fixed PXPs")
 
     def run_command(self, config):
         with open(config.crsd_file, "rb") as f, skcrsd.Reader(f) as r:
@@ -1016,8 +1013,7 @@ class _CrsdPlotMetadataSubcommand(_cli.Subcommand):
             if config.prefix is None
             else config.prefix
         )
-        output_dir = config.output_dir or pathlib.Path.cwd()
-        save_func(output_dir, prefix=prefix, auto_open=config.auto_open)
+        save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
         return 0
 
 
