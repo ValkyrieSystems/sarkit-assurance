@@ -1,7 +1,5 @@
 import json
 import shutil
-import subprocess
-import sys
 
 import lxml.html
 import sarkit.sidd as sksidd
@@ -144,14 +142,11 @@ def test_smart_open(tmp_path, multi_sidd):
     shutil.copyfile(multi_sidd, tmp_path / multi_sidd.name)
 
     with tests.utils.static_http_server(tmp_path) as server_url:
-        subprocess.check_call(
+        scth.main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.sidd_chip_to_html",
                 f"{server_url}/{multi_sidd.name}",
                 f"{server_url}/{geojson_file.name}",
-                html_file,
+                str(html_file),
             ],
         )
         assert html_file.exists()

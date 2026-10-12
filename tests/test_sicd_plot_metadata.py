@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import lxml.etree
 import numpy as np
 import numpy.testing as npt
@@ -13,11 +10,8 @@ import tests.utils
 
 def test_smart_open(tmp_path, example_sicd):
     with tests.utils.static_http_server(example_sicd.parent) as server_url:
-        subprocess.check_call(
+        plot_metadata.main(
             [
-                sys.executable,
-                "-m",
-                "sarkit_assurance.sicd_plot_metadata",
                 f"{server_url}/{example_sicd.name}",
                 str(tmp_path),
                 "-q",
@@ -28,22 +22,16 @@ def test_smart_open(tmp_path, example_sicd):
 
 @pytest.mark.parametrize("args", [[], ["--sample-data"]])
 def test_main(tmp_path, args, sicd_xml):
-    plot_metadata.main([str(sicd_xml), str(tmp_path), "-qc"] + args)
-    assert len(list(tmp_path.glob("*.html"))) == 1
+    outdir = tmp_path / "metadata_plots"
+    assert not outdir.is_dir()
+    plot_metadata.main([str(sicd_xml), str(outdir), "-qc"] + args)
+    assert len(list(outdir.glob("*.html"))) == 1
 
 
 @pytest.mark.parametrize("args", [[], ["--sample-data"]])
 def test_main_sicd(tmp_path, example_sicd, args):
     plot_metadata.main([str(example_sicd), str(tmp_path), "-qc"] + args)
     assert len(list(tmp_path.glob("*.html"))) == 1
-
-
-def test_main_output_dir(tmp_path, sicd_xml):
-    outdir = tmp_path / "metadata_plots"
-    assert not outdir.is_dir()
-    plot_metadata.main([str(sicd_xml), str(outdir), "-q"])
-    assert outdir.is_dir()
-    assert len(list(outdir.glob("*.html"))) > 0
 
 
 def test_main_concatenate(tmp_path, sicd_xml):

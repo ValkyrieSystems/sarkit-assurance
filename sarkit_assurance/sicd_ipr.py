@@ -5,6 +5,7 @@ import copy
 import importlib.metadata
 import json
 import pathlib
+import sys
 import textwrap
 from collections.abc import Sequence
 from typing import Any
@@ -17,7 +18,7 @@ import sarkit.wgs84
 import sarkit_processing.sicd_pixel_type as skp_sicdpx
 import shapely
 
-from . import _geojson, _ipr, _sicd_utils, names
+from . import _cli, _geojson, _ipr, _sicd_utils, names
 
 try:
     from smart_open import open
@@ -372,44 +373,58 @@ def get_table_info(ew: sksicd.ElementWrapper) -> list[tuple[str, str]]:
     return info
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent("""
-            Analyze target IPRs in a SICD
+class _SicdIprSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=textwrap.dedent("""
+                Analyze target IPRs in a SICD
 
-            Produces:
+                Produces:
 
-            sicd_ipr.json
-                Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
-                results. Existing properties, if present, are maintained in the "original_properties" member.
-            sicd_ipr${index}[-${feature_id}].html
-                IPR plot for a given feature.
-        """),
-    )
-    parser.add_argument("sicd_file", help="Input SICD file")
-    parser.add_argument("geojson_file", help="Input GeoJSON file")
-    parser.add_argument("out_dir", help="Directory to store results", type=pathlib.Path)
-    parser.add_argument(
-        "--search-size-pixels",
-        type=int,
-        metavar="SSP",
-        nargs="+",
-        help=(
-            "Number of pixels away from the expected position to search in each dimension. "
-            "Multiple iterations with decreasing search sizes can be used to more likely find the correct target when "
-            "there is mainly a bulk geolocation offset. "
-            f"If unspecified, a single iteration using {NOM_CHIP_EDGE_PX} x {NOM_CHIP_EDGE_PX} chips is performed."
-        ),
-    )
-    config = parser.parse_args(args)
+                sicd_ipr.json
+                    Input GeoJSON, augmented such that each feature's "properties" member is populated with IPR analysis
+                    results. Existing properties, if present, are maintained in the "original_properties" member.
+                sicd_ipr${index}[-${feature_id}].html
+                    IPR plot for a given feature.
+            """),
+        )
 
-    with open(config.geojson_file, "rb") as file:
-        geo = json.load(file)
+    def add_arguments(self, parser):
+        parser.add_argument("sicd_file", help="path to SICD file to analyze")
+        parser.add_argument(
+            "geojson_file",
+            help="path to GeoJSON file containing 3D point features describing target locations",
+        )
+        parser.add_argument(
+            "output_dir", help="path to output directory", type=pathlib.Path
+        )
+        parser.add_argument(
+            "--search-size-pixels",
+            type=int,
+            metavar="SSP",
+            nargs="+",
+            help=(
+                "Number of pixels away from the expected position to search in each dimension. "
+                "Multiple iterations with decreasing search sizes can be used to more likely find the correct target when "
+                "there is mainly a bulk geolocation offset. "
+                f"If unspecified, a single iteration using {NOM_CHIP_EDGE_PX} x {NOM_CHIP_EDGE_PX} chips is performed."
+            ),
+        )
 
-    with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
-        analyze(r, geo, config.out_dir, search_sizes_px=config.search_size_pixels)
+    def run_command(self, config):
+        with open(config.geojson_file, "rb") as file:
+            geo = json.load(file)
 
+        with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
+            analyze(
+                r, geo, config.output_dir, search_sizes_px=config.search_size_pixels
+            )
+
+        return 0
+
+
+main = _SicdIprSubcommand().as_callable()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

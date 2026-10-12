@@ -35,6 +35,15 @@ dependencies = [
 all = [
 ]
 
+[project.scripts]
+sarkit-assurance = "sarkit_assurance.__main__:main"
+ska = "sarkit_assurance.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/ValkyrieSystems/sarkit-assurance.git"
+"Bug Tracker" = "https://github.com/ValkyrieSystems/sarkit-assurance/issues"
+Changelog = "https://github.com/ValkyrieSystems/sarkit-assurance/blob/main/CHANGELOG.md"
+
 [dependency-groups]
 test = [
     "nox>=2025.2.9",
@@ -98,8 +107,3 @@ module = [
     "smart_open.*",
 ]
 ignore_missing_imports = true
-
-[project.urls]
-Repository = "https://github.com/ValkyrieSystems/sarkit-assurance.git"
-"Bug Tracker" = "https://github.com/ValkyrieSystems/sarkit-assurance/issues"
-Changelog = "https://github.com/ValkyrieSystems/sarkit-assurance/blob/main/CHANGELOG.md"

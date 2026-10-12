@@ -1,9 +1,9 @@
 """Utilities for generating plots of SICD metadata"""
 
-import argparse
 import html
 import itertools
 import pathlib
+import sys
 
 import lxml.etree
 import numpy as np
@@ -17,7 +17,7 @@ import shapely.affinity
 import shapely.geometry
 from scipy import constants
 
-from . import _plot_metadata, _remap, _sicd_utils, utils
+from . import _cli, _plot_metadata, _remap, _sicd_utils, utils
 
 try:
     from smart_open import open
@@ -961,56 +961,62 @@ def downsample_all_dims(data, factor):
     return working
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(
-        description="Produce various plots of information contained in a SICD"
-    )
-    parser.add_argument("sicd_nitf_or_xml")
-    parser.add_argument(
-        "output_dir",
-        nargs="?",
-        type=pathlib.Path,
-        default=pathlib.Path.cwd(),
-        help="directory where output plot(s) will be placed",
-    )
-    parser.add_argument(
-        "-p",
-        "--prefix",
-        help="prefix used in output filenames (Default: {sicd_nitf_or_xml.stem}_)",
-    )
-    parser.add_argument(
-        "-s",
-        "--sample-data",
-        action="store_true",
-        help="include plots that use the SICD data",
-    )
-    parser.add_argument(
-        "-c",
-        "--concatenate",
-        action="store_true",
-        help="concatenate plots into single HTML",
-    )
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_false",
-        dest="auto_open",
-        help="don't open plots after creation",
-    )
-    config = parser.parse_args(args)
+class _SicdPlotMetadataSubcommand(_cli.Subcommand):
+    def get_argument_parser_kwargs(self):
+        return dict(description="Create HTML metadata plots from a SICD")
 
-    with open(config.sicd_nitf_or_xml, "rb") as f:
-        plotter = Plotter(
-            f, html.escape(config.sicd_nitf_or_xml), use_sample_data=config.sample_data
+    def add_arguments(self, parser):
+        parser.add_argument("sicd_nitf_or_xml", help="path to SICD file (NITF or XML)")
+        parser.add_argument(
+            "output_dir",
+            type=pathlib.Path,
+            help="path to output directory",
         )
-    save_func = plotter.save_combined if config.concatenate else plotter.save_separate
-    prefix = (
-        pathlib.PurePath(config.sicd_nitf_or_xml).stem + "_"
-        if config.prefix is None
-        else config.prefix
-    )
-    save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
+        parser.add_argument(
+            "-p",
+            "--prefix",
+            help="prefix used in output filenames (default: '{sicd_nitf_or_xml.stem}_')",
+        )
+        parser.add_argument(
+            "-c",
+            "--concatenate",
+            action="store_true",
+            help="concatenate plots into single HTML",
+        )
+        parser.add_argument(
+            "-q",
+            "--quiet",
+            action="store_false",
+            dest="auto_open",
+            help="don't open plots after creation",
+        )
+        parser.add_argument(
+            "-s",
+            "--sample-data",
+            action="store_true",
+            help="include plots that use the SICD data",
+        )
+
+    def run_command(self, config):
+        with open(config.sicd_nitf_or_xml, "rb") as f:
+            plotter = Plotter(
+                f,
+                html.escape(config.sicd_nitf_or_xml),
+                use_sample_data=config.sample_data,
+            )
+        save_func = (
+            plotter.save_combined if config.concatenate else plotter.save_separate
+        )
+        prefix = (
+            pathlib.PurePath(config.sicd_nitf_or_xml).stem + "_"
+            if config.prefix is None
+            else config.prefix
+        )
+        save_func(config.output_dir, prefix=prefix, auto_open=config.auto_open)
+        return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
-    main()
+main = _SicdPlotMetadataSubcommand().as_callable()
+
+if __name__ == "__main__":
+    sys.exit(main())
