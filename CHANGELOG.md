@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `sarkit-assurance` and `ska` CLI entrypoints
+- Support for SICD PixelType=AMP8I_PHS8I in `joint_chip_to_html`
 
 ### Changed
 - `output_dir` argument is now required for `cphd_plot_metadata`, `crsd_plot_metadata`, `sicd_plot_metadata`

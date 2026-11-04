@@ -86,27 +86,33 @@ class _JointChipToHtmlSubcommand(_cli.Subcommand):
 
         with open(config.sicd_file, "rb") as f, sksicd.NitfReader(f) as r:
             sicd_xmltree = r.metadata.xmltree
-            input_sicd_data = r.read_image()
+            sicd_data = r.read_image()
             sicd_ew = sksicd.ElementWrapper(sicd_xmltree.getroot())
 
-        if sicd_ew["ImageData"]["PixelType"] == "RE16I_IM16I":
-            input_sicd_data = (
-                input_sicd_data["real"].astype(np.float32)
-                + 1j * input_sicd_data["imag"].astype(np.float32)
-            ).astype(np.complex64)
+        if sicd_ew["ImageData"]["PixelType"] == "RE32F_IM32F":
+            sicd_data = sicd_data.real**2 + sicd_data.imag**2
+        elif sicd_ew["ImageData"]["PixelType"] == "RE16I_IM16I":
+            # use floats to avoid overflow; precision is not that important here
+            sicd_data = (
+                sicd_data["real"].astype(np.float32) ** 2
+                + sicd_data["imag"].astype(np.float32) ** 2
+            )
         elif sicd_ew["ImageData"]["PixelType"] == "AMP8I_PHS8I":
-            # TODO: Handle 8-bit amp/phase
-            raise NotImplementedError(
-                "SICDs with PixelType=AMP8I_PHS8I are not supported"
+            sicd_data = sicd_data["amp"]
+            amp_table = sicd_ew["ImageData"].get("AmpTable", None)
+            if amp_table is not None:
+                # actual values don't matter; use indices to avoid unnecessary growth
+                assert len(amp_table) == 256
+                sort_inds = np.argsort(amp_table).astype(np.uint8)
+                sicd_data = sort_inds[sicd_data]
+        else:
+            raise ValueError(
+                f"Unrecognized PixelType: {sicd_ew['ImageData']['PixelType']}"
             )
 
-        masked_sicd_data = _get_shared_valid_data(
-            input_sicd_data, sicd_xmltree, sidd_xmltree
-        )
+        masked_sicd_data = _get_shared_valid_data(sicd_data, sicd_xmltree, sidd_xmltree)
 
-        max_rc = np.unravel_index(
-            np.abs(masked_sicd_data).argmax(), masked_sicd_data.shape
-        )
+        max_rc = np.unravel_index(masked_sicd_data.argmax(), masked_sicd_data.shape)
         max_xryc = sksicd.rowcol_to_xrowycol(sicd_xmltree, max_rc)
 
         # Use RadarCollection.Area.Plane metadata if available, default to SCP
